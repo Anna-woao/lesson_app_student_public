@@ -200,10 +200,20 @@ def render_student_home(student_id: int, student_label: str):
 
 def main():
     st.title("英语辅导系统｜学生端")
-
     st.write("这里是学生使用的前台页面。")
 
+    # ===== 临时调试区 =====
+    st.write("DEBUG URL:", st.secrets["SUPABASE_URL"])
+
+    from supabase_client import get_supabase_client
+    supabase = get_supabase_client()
+
+    raw_resp = supabase.table("students").select("id, name, grade").execute()
+    st.write("DEBUG 直接查 students:", raw_resp.data)
+
     students = db.get_all_students()
+    st.write("DEBUG db.get_all_students():", students)
+
     if not students:
         st.warning("当前还没有可用学生数据。")
         return
