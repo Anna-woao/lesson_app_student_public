@@ -200,6 +200,18 @@ def render_student_home(student_id: int, student_label: str):
 
 def main():
     st.title("英语辅导系统｜学生端")
+
+    # ===== 临时调试区 =====
+    url = st.secrets["SUPABASE_URL"]
+    st.write("DEBUG 项目 URL：", url)
+
+    supabase = get_supabase_client()
+    raw_resp = supabase.table("students").select("id, name, grade").execute()
+    st.write("DEBUG 直接查 students：", raw_resp.data)
+    students = db.get_all_students()
+    st.write("DEBUG db.get_all_students()：", students)
+
+
     st.write("这里是学生使用的前台页面。")
 
     students = db.get_all_students()
