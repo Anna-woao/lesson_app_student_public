@@ -4,3 +4,4 @@ python-docx
 openai
 google-generativeai
 docx2pdf
+supabase

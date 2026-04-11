@@ -18,17 +18,18 @@
 import streamlit as st
 
 import db_student as db
-from system_check_student import run_system_check
+
+from supabase_client import get_supabase_client
 
 # ------------------------------
 # 启动前自检
 # ------------------------------
-run_system_check()
 
 # ------------------------------
 # 页面配置
 # ------------------------------
 st.set_page_config(page_title="英语辅导系统｜学生端", layout="wide")
+st.write("Supabase URL:", st.secrets["SUPABASE_URL"])
 
 def build_student_options(students):
     """
