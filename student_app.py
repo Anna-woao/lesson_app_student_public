@@ -5,9 +5,10 @@
 
 当前提供：
 1. 查看最近学案
-2. 查看已学单词
-3. 查看学习进度
-4. 查看词汇检测记录
+2. 查看完整学案
+3. 查看已学单词
+4. 查看学习进度
+5. 查看词汇检测记录
 
 注意：
 - 这还是 MVP
@@ -19,17 +20,12 @@ import streamlit as st
 
 import db_student as db
 
-from supabase_client import get_supabase_client
-
-# ------------------------------
-# 启动前自检
-# ------------------------------
 
 # ------------------------------
 # 页面配置
 # ------------------------------
 st.set_page_config(page_title="英语辅导系统｜学生端", layout="wide")
-st.write("Supabase URL:", st.secrets["SUPABASE_URL"])
+
 
 def build_student_options(students):
     """
@@ -37,6 +33,70 @@ def build_student_options(students):
     {显示标签: student_id}
     """
     return {f"{student[1]}（{student[2]}）": student[0] for student in students}
+
+
+def render_recent_lessons(student_id: int):
+    """
+    渲染最近学案，并支持查看完整学案内容。
+    """
+    st.markdown("## 我的最近学案")
+
+    recent_lessons = db.get_recent_lessons_by_student(student_id, limit=5)
+    if not recent_lessons:
+        st.info("你目前还没有学案记录。")
+        return
+
+    selected_lesson_id = st.session_state.get("student_selected_lesson_id")
+
+    for lesson_id, lesson_type, difficulty, topic, created_at in recent_lessons:
+        with st.container():
+            st.markdown(f"### 学案 ID：{lesson_id}")
+            st.write(f"题型：{lesson_type}")
+            st.write(f"难度：{difficulty}")
+            st.write(f"主题：{topic}")
+            st.write(f"创建时间：{created_at}")
+
+            action_col1, action_col2 = st.columns([1, 5])
+
+            with action_col1:
+                if st.button("查看完整学案", key=f"view_lesson_{lesson_id}"):
+                    st.session_state["student_selected_lesson_id"] = lesson_id
+                    st.rerun()
+
+            with action_col2:
+                if selected_lesson_id == lesson_id:
+                    if st.button("收起当前学案", key=f"hide_lesson_{lesson_id}"):
+                        st.session_state["student_selected_lesson_id"] = None
+                        st.rerun()
+
+            if selected_lesson_id == lesson_id:
+                lesson_detail = db.get_lesson_detail_for_student(student_id, lesson_id)
+
+                if not lesson_detail:
+                    st.warning("没有读取到这份学案的完整内容。")
+                else:
+                    (
+                        _lesson_id,
+                        lesson_type,
+                        difficulty,
+                        topic,
+                        content,
+                        created_at,
+                    ) = lesson_detail
+
+                    with st.expander("完整学案内容", expanded=True):
+                        st.write(f"题型：{lesson_type}")
+                        st.write(f"难度：{difficulty}")
+                        st.write(f"主题：{topic}")
+                        st.write(f"创建时间：{created_at}")
+                        st.text_area(
+                            "学案正文",
+                            value=content or "",
+                            height=520,
+                            key=f"student_lesson_content_{lesson_id}",
+                        )
+
+            st.markdown("---")
 
 
 def render_student_home(student_id: int, student_label: str):
@@ -48,20 +108,7 @@ def render_student_home(student_id: int, student_label: str):
     # ------------------------------
     # 1. 最近学案
     # ------------------------------
-    st.markdown("## 我的最近学案")
-
-    recent_lessons = db.get_recent_lessons_by_student(student_id, limit=5)
-    if not recent_lessons:
-        st.info("你目前还没有学案记录。")
-    else:
-        for lesson_id, lesson_type, difficulty, topic, created_at in recent_lessons:
-            with st.container():
-                st.markdown(f"### 学案 ID：{lesson_id}")
-                st.write(f"题型：{lesson_type}")
-                st.write(f"难度：{difficulty}")
-                st.write(f"主题：{topic}")
-                st.write(f"创建时间：{created_at}")
-                st.markdown("---")
+    render_recent_lessons(student_id)
 
     # ------------------------------
     # 2. 已学习单词
@@ -202,18 +249,7 @@ def main():
     st.title("英语辅导系统｜学生端")
     st.write("这里是学生使用的前台页面。")
 
-    # ===== 临时调试区 =====
-    st.write("DEBUG URL:", st.secrets["SUPABASE_URL"])
-
-    from supabase_client import get_supabase_client
-    supabase = get_supabase_client()
-
-    raw_resp = supabase.table("students").select("id, name, grade").execute()
-    st.write("DEBUG 直接查 students:", raw_resp.data)
-
     students = db.get_all_students()
-    st.write("DEBUG db.get_all_students():", students)
-
     if not students:
         st.warning("当前还没有可用学生数据。")
         return
