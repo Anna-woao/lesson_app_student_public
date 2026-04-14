@@ -235,6 +235,24 @@ def main():
     st.markdown("---")
     _render_test_history(student_id)
 
+def _show_debug_info():
+    with st.expander("调试信息", expanded=True):
+        try:
+            secret_keys = set(dict(st.secrets).keys())
+        except Exception:
+            secret_keys = set()
+
+        st.write("SUPABASE_URL：", "已配置" if "SUPABASE_URL" in secret_keys else "未配置")
+        st.write("SUPABASE_PUBLISHABLE_KEY：", "已配置" if "SUPABASE_PUBLISHABLE_KEY" in secret_keys else "未配置")
+
+
+def _safe_render(section_name: str, render_func, student_id: int):
+    try:
+        render_func(student_id)
+    except Exception as e:
+        st.error(f"{section_name} 加载失败")
+        st.exception(e)
+
 
 if __name__ == "__main__":
     main()
