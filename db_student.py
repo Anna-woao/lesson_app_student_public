@@ -1,58 +1,36 @@
-# db_student.py
+"""学生端 Supabase 数据层（含词汇检测作答）"""
 
-'''学生端数据库读取文件（Supabase 版）
+from __future__ import annotations
 
-这个文件只负责“学生前台需要读取的数据”，
-不负责后台写入和管理操作。
-
-当前目标：
-1. 先把学生端从 SQLite 切到 Supabase
-2. 保持函数名尽量不变，减少 student_app.py 改动
-3. 先跑通“读取链路”，后面再继续做权限收紧和登录隔离
-'''
+import random
+from typing import Dict, List, Optional, Tuple
 
 from supabase_client import get_supabase_client
 
 
-# =========================================
-# 一、学生身份选择
-# =========================================
+def _fetch_all_rows(query_builder, page_size: int = 1000):
+    start = 0
+    all_rows = []
+    while True:
+        resp = query_builder.range(start, start + page_size - 1).execute()
+        rows = resp.data or []
+        all_rows.extend(rows)
+        if len(rows) < page_size:
+            break
+        start += page_size
+    return all_rows
+
+
 def get_all_students():
-    """
-    获取所有学生
-
-    返回：
-    [(id, name, grade), ...]
-    """
     supabase = get_supabase_client()
-
-    response = (
-        supabase.table("students")
-        .select("id, name, grade")
-        .order("id", desc=True)
-        .execute()
-    )
-
-    rows = response.data or []
+    resp = supabase.table("students").select("id, name, grade").order("id", desc=False).execute()
+    rows = resp.data or []
     return [(row["id"], row["name"], row["grade"]) for row in rows]
 
 
-# =========================================
-# 二、学案读取
-# =========================================
-def get_recent_lessons_by_student(student_id, limit=5):
-    """
-    获取某个学生最近几份学案
-
-    返回：
-    [
-        (lesson_id, lesson_type, difficulty, topic, created_at),
-        ...
-    ]
-    """
+def get_student_recent_lessons(student_id: int, limit: int = 10):
     supabase = get_supabase_client()
-
-    response = (
+    resp = (
         supabase.table("lessons")
         .select("id, lesson_type, difficulty, topic, created_at")
         .eq("student_id", student_id)
@@ -60,27 +38,13 @@ def get_recent_lessons_by_student(student_id, limit=5):
         .limit(limit)
         .execute()
     )
-
-    rows = response.data or []
-    return [
-        (
-            row["id"],
-            row.get("lesson_type"),
-            row.get("difficulty"),
-            row.get("topic"),
-            row.get("created_at"),
-        )
-        for row in rows
-    ]
+    rows = resp.data or []
+    return [(r["id"], r.get("lesson_type"), r.get("difficulty"), r.get("topic"), r.get("created_at")) for r in rows]
 
 
-def get_lesson_detail_for_student(student_id, lesson_id):
-    """
-    获取某个学生名下某一份学案的完整信息
-    """
+def get_lesson_detail_for_student(student_id: int, lesson_id: int):
     supabase = get_supabase_client()
-
-    response = (
+    resp = (
         supabase.table("lessons")
         .select("id, lesson_type, difficulty, topic, content, created_at")
         .eq("student_id", student_id)
@@ -88,300 +52,161 @@ def get_lesson_detail_for_student(student_id, lesson_id):
         .limit(1)
         .execute()
     )
-
-    rows = response.data or []
-    if not rows:
-        return None
-
-    row = rows[0]
-    return (
-        row["id"],
-        row.get("lesson_type"),
-        row.get("difficulty"),
-        row.get("topic"),
-        row.get("content"),
-        row.get("created_at"),
-    )
+    rows = resp.data or []
+    return rows[0] if rows else None
 
 
-# =========================================
-# 三、学生已学单词
-# =========================================
-def get_student_learned_vocab(student_id):
-    """
-    获取某个学生的已学单词列表
-
-    返回：
-    [
-        (
-            lemma,
-            meaning,
-            status,
-            review_count,
-            error_count,
-            memory_score,
-            first_learned_at,
-            last_review_time,
-            next_review_time
-        ),
-        ...
-    ]
-    """
+def get_student_learned_vocab(student_id: int, limit: int = 200):
     supabase = get_supabase_client()
-
-    # 先查 student_vocab_progress
-    progress_resp = (
+    prog = (
         supabase.table("student_vocab_progress")
-        .select("""
-            vocab_item_id,
-            first_source_book_id,
-            first_source_unit_id,
-            status,
-            review_count,
-            error_count,
-            memory_score,
-            first_learned_at,
-            last_review_time,
-            next_review_time
-        """)
+        .select("vocab_item_id, status, review_count, error_count, memory_score, first_learned_at, last_review_time, next_review_time")
         .eq("student_id", student_id)
         .order("first_learned_at", desc=True)
+        .limit(limit)
         .execute()
     )
-    progress_rows = progress_resp.data or []
-
-    if not progress_rows:
-        return []
-
-    vocab_item_ids = [row["vocab_item_id"] for row in progress_rows if row.get("vocab_item_id") is not None]
-    if not vocab_item_ids:
-        return []
-
-    # 查 vocab_items
-    vocab_resp = (
-        supabase.table("vocab_items")
-        .select("id, lemma, default_meaning")
-        .filter("id", "in", f"({','.join(map(str, vocab_item_ids))})")
-        .execute()
-    )
-    vocab_rows = vocab_resp.data or []
-    vocab_map = {row["id"]: row for row in vocab_rows}
-
-    # 查 book_unit_vocab，尽量还原学生第一次学这个词时的 book_meaning
-    buv_resp = (
-        supabase.table("book_unit_vocab")
-        .select("book_id, unit_id, vocab_item_id, book_meaning")
-        .filter("vocab_item_id", "in", f"({','.join(map(str, vocab_item_ids))})")
-        .execute()
-    )
-    buv_rows = buv_resp.data or []
+    progress_rows = prog.data or []
+    vocab_ids = [row["vocab_item_id"] for row in progress_rows if row.get("vocab_item_id") is not None]
+    vocab_map = {}
+    if vocab_ids:
+        vocab_rows = (
+            supabase.table("vocab_items")
+            .select("id, lemma, default_meaning")
+            .in_("id", vocab_ids)
+            .execute()
+        ).data or []
+        vocab_map = {r["id"]: (r.get("lemma", ""), r.get("default_meaning", "") or "") for r in vocab_rows}
 
     result = []
-    for p in progress_rows:
-        vocab_item_id = p["vocab_item_id"]
-        vocab_info = vocab_map.get(vocab_item_id, {})
-        lemma = vocab_info.get("lemma", "")
-        default_meaning = vocab_info.get("default_meaning", "")
-
-        matched_book_meaning = None
-        for buv in buv_rows:
-            if (
-                buv.get("vocab_item_id") == vocab_item_id
-                and buv.get("book_id") == p.get("first_source_book_id")
-                and buv.get("unit_id") == p.get("first_source_unit_id")
-            ):
-                matched_book_meaning = buv.get("book_meaning")
-                break
-
-        meaning = matched_book_meaning or default_meaning or ""
-
-        result.append(
-            (
+    for row in progress_rows:
+        vocab_item_id = row.get("vocab_item_id")
+        lemma, meaning = vocab_map.get(vocab_item_id, ("", ""))
+        if lemma:
+            result.append((
                 lemma,
                 meaning,
-                p.get("status"),
-                p.get("review_count"),
-                p.get("error_count"),
-                p.get("memory_score"),
-                p.get("first_learned_at"),
-                p.get("last_review_time"),
-                p.get("next_review_time"),
-            )
-        )
-
+                row.get("status", "learning"),
+                row.get("review_count", 0),
+                row.get("error_count", 0),
+                row.get("memory_score", 3.0),
+                row.get("first_learned_at"),
+                row.get("last_review_time"),
+                row.get("next_review_time"),
+            ))
     return result
 
 
-# =========================================
-# 四、学习进度
-# =========================================
-def get_student_book_progress(student_id):
-    """
-    获取某个学生在各个词汇书中的学习进度
+def get_student_book_progress(student_id: int):
+    supabase = get_supabase_client()
+    books = (
+        supabase.table("word_books")
+        .select("id, book_name, volume_name")
+        .order("id", desc=False)
+        .execute()
+    ).data or []
 
-    返回：
-    [
-        (
+    progress_rows = (
+        supabase.table("student_vocab_progress")
+        .select("vocab_item_id, first_source_book_id, first_source_unit_id, status")
+        .eq("student_id", student_id)
+        .execute()
+    ).data or []
+
+    result = []
+    for book in books:
+        book_id = book["id"]
+        total_resp = (
+            supabase.table("book_unit_vocab")
+            .select("id", count="exact")
+            .eq("book_id", book_id)
+            .execute()
+        )
+        total_count = total_resp.count or 0
+
+        learned_rows = [r for r in progress_rows if r.get("first_source_book_id") == book_id]
+        learned_ids = {r["vocab_item_id"] for r in learned_rows if r.get("vocab_item_id") is not None}
+
+        mastered_count = len({r["vocab_item_id"] for r in learned_rows if r.get("status") == "mastered"})
+        learning_count = len({r["vocab_item_id"] for r in learned_rows if r.get("status") == "learning"})
+        review_count = len({r["vocab_item_id"] for r in learned_rows if r.get("status") == "review"})
+
+        result.append((
             book_id,
-            book_name,
-            volume_name,
-            learned_count,
+            book.get("book_name"),
+            book.get("volume_name"),
+            len(learned_ids),
             total_count,
             mastered_count,
             learning_count,
-            review_count
-        ),
-        ...
-    ]
-    """
-    supabase = get_supabase_client()
-
-    books_resp = (
-        supabase.table("word_books")
-        .select("id, book_name, volume_name")
-        .order("id", desc=True)
-        .execute()
-    )
-    books = books_resp.data or []
-
-    progress_resp = (
-        supabase.table("student_vocab_progress")
-        .select("vocab_item_id, first_source_book_id, status")
-        .eq("student_id", student_id)
-        .execute()
-    )
-    progress_rows = progress_resp.data or []
-
-    buv_resp = (
-        supabase.table("book_unit_vocab")
-        .select("book_id, vocab_item_id")
-        .execute()
-    )
-    buv_rows = buv_resp.data or []
-
-    result = []
-
-    for book in books:
-        book_id = book["id"]
-        book_name = book.get("book_name")
-        volume_name = book.get("volume_name")
-
-        total_vocab_ids = {
-            row["vocab_item_id"]
-            for row in buv_rows
-            if row.get("book_id") == book_id and row.get("vocab_item_id") is not None
-        }
-
-        learned_rows = [
-            row for row in progress_rows
-            if row.get("first_source_book_id") == book_id
-        ]
-
-        learned_vocab_ids = {row["vocab_item_id"] for row in learned_rows if row.get("vocab_item_id") is not None}
-
-        mastered_count = len({row["vocab_item_id"] for row in learned_rows if row.get("status") == "mastered"})
-        learning_count = len({row["vocab_item_id"] for row in learned_rows if row.get("status") == "learning"})
-        review_count = len({row["vocab_item_id"] for row in learned_rows if row.get("status") == "review"})
-
-        result.append(
-            (
-                book_id,
-                book_name,
-                volume_name,
-                len(learned_vocab_ids),
-                len(total_vocab_ids),
-                mastered_count,
-                learning_count,
-                review_count,
-            )
-        )
-
+            review_count,
+        ))
     return result
 
 
-def get_student_unit_progress(student_id, book_id):
-    """
-    获取某个学生在某本词汇书各单元中的学习进度
-
-    返回：
-    [
-        (
-            unit_id,
-            unit_name,
-            unit_order,
-            learned_count,
-            total_count
-        ),
-        ...
-    ]
-    """
+def get_student_unit_progress(student_id: int, book_id: int):
     supabase = get_supabase_client()
-
-    units_resp = (
+    units = (
         supabase.table("word_units")
         .select("id, unit_name, unit_order")
         .eq("book_id", book_id)
         .order("unit_order", desc=False)
         .execute()
-    )
-    units = units_resp.data or []
+    ).data or []
 
-    buv_resp = (
-        supabase.table("book_unit_vocab")
-        .select("unit_id, vocab_item_id")
-        .eq("book_id", book_id)
-        .execute()
+    buv_rows = _fetch_all_rows(
+        supabase.table("book_unit_vocab").select("unit_id, vocab_item_id").eq("book_id", book_id)
     )
-    buv_rows = buv_resp.data or []
 
-    progress_resp = (
+    progress_rows = (
         supabase.table("student_vocab_progress")
         .select("vocab_item_id, first_source_book_id, first_source_unit_id")
         .eq("student_id", student_id)
         .eq("first_source_book_id", book_id)
         .execute()
-    )
-    progress_rows = progress_resp.data or []
+    ).data or []
+
+    vocab_to_units = {}
+    for row in buv_rows:
+        unit_id = row.get("unit_id")
+        vocab_item_id = row.get("vocab_item_id")
+        if unit_id is None or vocab_item_id is None:
+            continue
+        vocab_to_units.setdefault(vocab_item_id, set()).add(unit_id)
+
+    normalized_progress = []
+    for row in progress_rows:
+        vocab_item_id = row.get("vocab_item_id")
+        unit_id = row.get("first_source_unit_id")
+        if unit_id is None and vocab_item_id in vocab_to_units and len(vocab_to_units[vocab_item_id]) == 1:
+            unit_id = list(vocab_to_units[vocab_item_id])[0]
+        normalized_progress.append((vocab_item_id, unit_id))
 
     result = []
-
     for unit in units:
         unit_id = unit["id"]
-
         total_vocab_ids = {
             row["vocab_item_id"]
             for row in buv_rows
             if row.get("unit_id") == unit_id and row.get("vocab_item_id") is not None
         }
-
         learned_vocab_ids = {
-            row["vocab_item_id"]
-            for row in progress_rows
-            if row.get("first_source_unit_id") == unit_id and row.get("vocab_item_id") is not None
+            vocab_item_id
+            for vocab_item_id, learned_unit_id in normalized_progress
+            if learned_unit_id == unit_id and vocab_item_id is not None
         }
-
-        result.append(
-            (
-                unit_id,
-                unit.get("unit_name"),
-                unit.get("unit_order", 0),
-                len(learned_vocab_ids),
-                len(total_vocab_ids),
-            )
-        )
-
+        result.append((
+            unit_id,
+            unit.get("unit_name"),
+            unit.get("unit_order", 0),
+            len(learned_vocab_ids),
+            len(total_vocab_ids),
+        ))
     return result
 
 
-# =========================================
-# 五、词汇检测记录
-# =========================================
-def get_student_vocab_test_records(student_id, limit=20):
-    """
-    获取某个学生最近的词汇检测记录
-    """
+def get_student_vocab_test_records(student_id: int, limit: int = 20):
     supabase = get_supabase_client()
-
     response = (
         supabase.table("vocab_test_records")
         .select("""
@@ -404,7 +229,6 @@ def get_student_vocab_test_records(student_id, limit=20):
         .limit(limit)
         .execute()
     )
-
     rows = response.data or []
     return [
         (
@@ -426,12 +250,8 @@ def get_student_vocab_test_records(student_id, limit=20):
     ]
 
 
-def get_vocab_test_record_items(test_record_id):
-    """
-    获取某一轮检测的逐题明细
-    """
+def get_vocab_test_record_items(test_record_id: int):
     supabase = get_supabase_client()
-
     response = (
         supabase.table("vocab_test_record_items")
         .select("vocab_item_id, word, meaning, mode, user_answer, is_correct")
@@ -439,7 +259,6 @@ def get_vocab_test_record_items(test_record_id):
         .order("id", desc=False)
         .execute()
     )
-
     rows = response.data or []
     return [
         (
@@ -453,74 +272,23 @@ def get_vocab_test_record_items(test_record_id):
         for row in rows
     ]
 
-# =========================================
-# 六、覆盖修复：大词汇书统计 / 单元进度 / 学生端自测支持
-# =========================================
-import random
-import re
-
-
-def _count_book_vocab_exact(book_id: int) -> int:
-    supabase = get_supabase_client()
-    resp = (
-        supabase.table("book_unit_vocab")
-        .select("id", count="exact")
-        .eq("book_id", book_id)
-        .execute()
-    )
-    return resp.count or 0
-
-
-def _count_unit_vocab_exact(unit_id: int) -> int:
-    supabase = get_supabase_client()
-    resp = (
-        supabase.table("book_unit_vocab")
-        .select("id", count="exact")
-        .eq("unit_id", unit_id)
-        .execute()
-    )
-    return resp.count or 0
-
-
-def _fetch_all_book_unit_vocab_rows(book_id: int, unit_id=None, columns: str = "unit_id, vocab_item_id, surface_word, book_meaning, item_order"):
-    supabase = get_supabase_client()
-    start = 0
-    page_size = 1000
-    rows = []
-
-    while True:
-        query = (
-            supabase.table("book_unit_vocab")
-            .select(columns)
-            .eq("book_id", book_id)
-            .range(start, start + page_size - 1)
-        )
-        if unit_id is not None:
-            query = query.eq("unit_id", unit_id)
-
-        page = query.execute().data or []
-        rows.extend(page)
-        if len(page) < page_size:
-            break
-        start += page_size
-
-    return rows
-
 
 def get_all_word_books():
     supabase = get_supabase_client()
     rows = (
         supabase.table("word_books")
-        .select("id, book_name, volume_name, description")
-        .order("id", desc=True)
+        .select("id, book_name, volume_name")
+        .order("id", desc=False)
         .execute()
-        .data
-        or []
-    )
-    return [(row["id"], row.get("book_name"), row.get("volume_name"), row.get("description")) for row in rows]
+    ).data or []
+    result = []
+    for row in rows:
+        label = row["book_name"] if not row.get("volume_name") else f"{row['book_name']}（{row['volume_name']}）"
+        result.append((row["id"], label))
+    return result
 
 
-def get_units_by_book(book_id):
+def get_units_by_book(book_id: int):
     supabase = get_supabase_client()
     rows = (
         supabase.table("word_units")
@@ -528,348 +296,183 @@ def get_units_by_book(book_id):
         .eq("book_id", book_id)
         .order("unit_order", desc=False)
         .execute()
-        .data
-        or []
-    )
-    return [(row["id"], row.get("unit_name"), row.get("unit_order", 0)) for row in rows]
+    ).data or []
+    return [(r["id"], r["unit_name"], r.get("unit_order", 0)) for r in rows]
 
 
-def get_student_learned_vocab(student_id):
+def _fetch_vocab_map(vocab_ids: List[int]) -> Dict[int, Tuple[str, str]]:
     supabase = get_supabase_client()
-
-    progress_rows = (
-        supabase.table("student_vocab_progress")
-        .select(
-            """
-            vocab_item_id,
-            first_source_book_id,
-            first_source_unit_id,
-            status,
-            review_count,
-            error_count,
-            memory_score,
-            first_learned_at,
-            last_review_time,
-            next_review_time
-            """
-        )
-        .eq("student_id", student_id)
-        .order("first_learned_at", desc=True)
-        .execute()
-        .data
-        or []
-    )
-    if not progress_rows:
-        return []
-
-    vocab_item_ids = [row["vocab_item_id"] for row in progress_rows if row.get("vocab_item_id") is not None]
-    if not vocab_item_ids:
-        return []
-
-    vocab_rows = (
+    if not vocab_ids:
+        return {}
+    rows = (
         supabase.table("vocab_items")
         .select("id, lemma, default_meaning")
-        .in_("id", vocab_item_ids)
+        .in_("id", vocab_ids)
         .execute()
-        .data
-        or []
-    )
-    vocab_map = {row["id"]: row for row in vocab_rows}
-
-    buv_rows = (
-        supabase.table("book_unit_vocab")
-        .select("book_id, unit_id, vocab_item_id, book_meaning")
-        .in_("vocab_item_id", vocab_item_ids)
-        .execute()
-        .data
-        or []
-    )
-
-    result = []
-    for p in progress_rows:
-        vocab_item_id = p.get("vocab_item_id")
-        vocab_info = vocab_map.get(vocab_item_id, {})
-        lemma = vocab_info.get("lemma", "")
-        default_meaning = vocab_info.get("default_meaning", "")
-
-        matched_book_meaning = None
-        # 先按书+单元精确匹配
-        for buv in buv_rows:
-            if (
-                buv.get("vocab_item_id") == vocab_item_id
-                and buv.get("book_id") == p.get("first_source_book_id")
-                and buv.get("unit_id") == p.get("first_source_unit_id")
-            ):
-                matched_book_meaning = buv.get("book_meaning")
-                break
-        # 如果 first_source_unit_id 为空，就退回到书级匹配
-        if matched_book_meaning is None:
-            for buv in buv_rows:
-                if (
-                    buv.get("vocab_item_id") == vocab_item_id
-                    and buv.get("book_id") == p.get("first_source_book_id")
-                ):
-                    matched_book_meaning = buv.get("book_meaning")
-                    break
-
-        meaning = matched_book_meaning or default_meaning or ""
-        result.append(
-            (
-                lemma,
-                meaning,
-                p.get("status"),
-                p.get("review_count"),
-                p.get("error_count"),
-                p.get("memory_score"),
-                p.get("first_learned_at"),
-                p.get("last_review_time"),
-                p.get("next_review_time"),
-            )
-        )
-    return result
+    ).data or []
+    return {r["id"]: (r.get("lemma", ""), r.get("default_meaning", "") or "") for r in rows}
 
 
-def get_student_book_progress(student_id):
+def build_progress_test(student_id: int, test_type: str, test_mode: str, test_count: int):
     supabase = get_supabase_client()
-    books = (
-        supabase.table("word_books")
-        .select("id, book_name, volume_name")
-        .order("id", desc=True)
-        .execute()
-        .data
-        or []
-    )
-    progress_rows = (
+    status_filter = "learning" if test_type == "新词检测" else "review"
+    rows = (
         supabase.table("student_vocab_progress")
-        .select("vocab_item_id, first_source_book_id, status")
+        .select("vocab_item_id, first_source_book_id, first_source_unit_id, status")
         .eq("student_id", student_id)
+        .eq("status", status_filter)
+        .limit(500)
         .execute()
-        .data
-        or []
-    )
-
-    result = []
-    for book in books:
-        book_id = book["id"]
-        learned_rows = [row for row in progress_rows if row.get("first_source_book_id") == book_id]
-        learned_vocab_ids = {row["vocab_item_id"] for row in learned_rows if row.get("vocab_item_id") is not None}
-        mastered_count = len({row["vocab_item_id"] for row in learned_rows if row.get("status") == "mastered"})
-        learning_count = len({row["vocab_item_id"] for row in learned_rows if row.get("status") == "learning"})
-        review_count = len({row["vocab_item_id"] for row in learned_rows if row.get("status") == "review"})
-        result.append(
-            (
-                book_id,
-                book.get("book_name"),
-                book.get("volume_name"),
-                len(learned_vocab_ids),
-                _count_book_vocab_exact(book_id),
-                mastered_count,
-                learning_count,
-                review_count,
-            )
-        )
-    return result
-
-
-def get_student_unit_progress(student_id, book_id):
-    supabase = get_supabase_client()
-    units = (
-        supabase.table("word_units")
-        .select("id, unit_name, unit_order")
-        .eq("book_id", book_id)
-        .order("unit_order", desc=False)
-        .execute()
-        .data
-        or []
-    )
-
-    buv_rows = _fetch_all_book_unit_vocab_rows(book_id, columns="unit_id, vocab_item_id")
-    membership_map = {}
-    for row in buv_rows:
-        vocab_item_id = row.get("vocab_item_id")
-        unit_id = row.get("unit_id")
-        if vocab_item_id is None or unit_id is None:
-            continue
-        membership_map.setdefault(vocab_item_id, set()).add(unit_id)
-
-    progress_rows = (
-        supabase.table("student_vocab_progress")
-        .select("vocab_item_id, first_source_book_id, first_source_unit_id")
-        .eq("student_id", student_id)
-        .eq("first_source_book_id", book_id)
-        .execute()
-        .data
-        or []
-    )
-
-    learned_by_unit = {unit["id"]: set() for unit in units}
-    for row in progress_rows:
-        vocab_item_id = row.get("vocab_item_id")
-        source_unit_id = row.get("first_source_unit_id")
-        if vocab_item_id is None:
-            continue
-        if source_unit_id in learned_by_unit:
-            learned_by_unit[source_unit_id].add(vocab_item_id)
-            continue
-        candidate_units = membership_map.get(vocab_item_id, set())
-        if len(candidate_units) == 1:
-            inferred_unit_id = next(iter(candidate_units))
-            if inferred_unit_id in learned_by_unit:
-                learned_by_unit[inferred_unit_id].add(vocab_item_id)
-
-    result = []
-    for unit in units:
-        unit_id = unit["id"]
-        result.append(
-            (
-                unit_id,
-                unit.get("unit_name"),
-                unit.get("unit_order", 0),
-                len(learned_by_unit.get(unit_id, set())),
-                _count_unit_vocab_exact(unit_id),
-            )
-        )
-    return result
-
-
-def get_progress_test_pool(student_id, count=15):
-    supabase = get_supabase_client()
-    progress_rows = (
-        supabase.table("student_vocab_progress")
-        .select("vocab_item_id, first_source_book_id, first_source_unit_id, first_learned_at")
-        .eq("student_id", student_id)
-        .order("first_learned_at", desc=True)
-        .execute()
-        .data
-        or []
-    )
-    if not progress_rows:
-        return []
-
-    random.shuffle(progress_rows)
-    selected = progress_rows[:count]
-    vocab_item_ids = [row["vocab_item_id"] for row in selected if row.get("vocab_item_id") is not None]
-    vocab_rows = (
-        supabase.table("vocab_items")
-        .select("id, lemma, default_meaning")
-        .in_("id", vocab_item_ids)
-        .execute()
-        .data
-        or []
-    )
-    vocab_map = {row["id"]: row for row in vocab_rows}
-    buv_rows = (
-        supabase.table("book_unit_vocab")
-        .select("book_id, unit_id, vocab_item_id, book_meaning")
-        .in_("vocab_item_id", vocab_item_ids)
-        .execute()
-        .data
-        or []
-    )
-
-    result = []
-    for row in selected:
-        vocab_item_id = row.get("vocab_item_id")
-        if vocab_item_id is None:
-            continue
-        vocab_info = vocab_map.get(vocab_item_id, {})
-        lemma = vocab_info.get("lemma", "")
-        meaning = vocab_info.get("default_meaning", "")
-        for buv in buv_rows:
-            if (
-                buv.get("vocab_item_id") == vocab_item_id
-                and buv.get("book_id") == row.get("first_source_book_id")
-                and (row.get("first_source_unit_id") is None or buv.get("unit_id") == row.get("first_source_unit_id"))
-            ):
-                meaning = buv.get("book_meaning") or meaning
-                break
-        result.append((vocab_item_id, lemma, meaning))
-    return result
-
-
-def get_book_vocab_for_test(book_id, unit_id=None, count=15, random_mode=True):
-    rows = _fetch_all_book_unit_vocab_rows(book_id, unit_id=unit_id, columns="unit_id, vocab_item_id, surface_word, book_meaning, item_order")
+    ).data or []
     if not rows:
-        return []
-    if random_mode:
-        random.shuffle(rows)
-    else:
-        rows = sorted(rows, key=lambda r: (r.get("item_order") or 0, r.get("id") or 0))
-    selected = rows[:count]
-    return [
-        (
-            row.get("vocab_item_id"),
-            row.get("surface_word") or "",
-            row.get("book_meaning") or "",
-        )
-        for row in selected
-        if row.get("vocab_item_id") is not None
-    ]
+        return False, "当前没有可用的学习进度检测词。"
+    random.shuffle(rows)
+    rows = rows[:test_count]
+
+    vocab_map = _fetch_vocab_map([r["vocab_item_id"] for r in rows if r.get("vocab_item_id") is not None])
+    questions = _build_questions_from_vocab_map(vocab_map, rows, test_mode)
+    payload = {
+        "source_type": "progress",
+        "source_book_id": None,
+        "source_unit_id": None,
+        "test_type": test_type,
+        "test_mode": test_mode,
+        "questions": questions,
+    }
+    return True, payload
 
 
-def try_save_student_test_result(
-    student_id,
-    source_type,
-    source_book_id,
-    source_unit_id,
-    source_label,
-    test_type,
-    test_mode,
-    results,
-):
-    """学生端尝试写入检测记录。
-
-    注意：
-    1. 当前学生端使用 publishable key。
-    2. 如果 RLS 还没有开放 insert，这里会自动失败并返回 False。
-    3. 页面会继续展示成绩，不会因为写入失败而中断。
-    """
+def build_book_test(student_id: int, book_id: int, unit_id: Optional[int], test_mode: str, test_count: int):
     supabase = get_supabase_client()
-    total_count = len(results)
-    correct_count = sum(1 for r in results if r.get("is_correct"))
-    accuracy = (correct_count / total_count) if total_count else 0
+    query = supabase.table("book_unit_vocab").select("vocab_item_id, book_id, unit_id")
+    query = query.eq("book_id", book_id)
+    if unit_id is not None:
+        query = query.eq("unit_id", unit_id)
 
+    rows = _fetch_all_rows(query)
+    if not rows:
+        return False, "当前范围内没有可用单词。"
+    random.shuffle(rows)
+    rows = rows[:test_count]
+
+    vocab_map = _fetch_vocab_map([r["vocab_item_id"] for r in rows if r.get("vocab_item_id") is not None])
+    questions = _build_questions_from_vocab_map(vocab_map, rows, test_mode)
+    payload = {
+        "source_type": "book",
+        "source_book_id": book_id,
+        "source_unit_id": unit_id,
+        "test_type": "词汇书抽词检测",
+        "test_mode": test_mode,
+        "questions": questions,
+    }
+    return True, payload
+
+
+def _build_questions_from_vocab_map(vocab_map, rows, test_mode: str):
+    all_meanings = [meaning for _, meaning in vocab_map.values() if meaning]
+    questions = []
+
+    for row in rows:
+        vocab_item_id = row.get("vocab_item_id")
+        word, meaning = vocab_map.get(vocab_item_id, ("", ""))
+        if not word:
+            continue
+
+        one_mode = random.choice(["英译中", "中译英"]) if test_mode == "混合模式" else test_mode
+
+        q = {
+            "vocab_item_id": vocab_item_id,
+            "word": word,
+            "meaning": meaning,
+            "mode": one_mode,
+        }
+
+        if one_mode == "英译中":
+            distractors = [m for m in all_meanings if m and m != meaning]
+            random.shuffle(distractors)
+            options = [meaning] + distractors[:3]
+            random.shuffle(options)
+            q["options"] = options
+
+        questions.append(q)
+
+    return questions
+
+
+def submit_student_test(student_id: int, payload: dict, user_answers: dict, source_label: str):
+    results = []
+    score = 0
+    total = len(payload["questions"])
+
+    for q in payload["questions"]:
+        vocab_item_id = q["vocab_item_id"]
+        mode = q["mode"]
+        user_answer = user_answers.get(vocab_item_id, "")
+        if mode == "英译中":
+            is_correct = (user_answer or "").strip() == (q["meaning"] or "").strip()
+        else:
+            is_correct = (user_answer or "").strip().lower() == (q["word"] or "").strip().lower()
+
+        if is_correct:
+            score += 1
+
+        results.append({
+            "vocab_item_id": vocab_item_id,
+            "word": q["word"],
+            "meaning": q["meaning"],
+            "mode": mode,
+            "user_answer": user_answer,
+            "is_correct": is_correct,
+        })
+
+    accuracy = (score / total) if total else 0.0
+
+    test_record_id = None
     try:
+        supabase = get_supabase_client()
         record_resp = (
             supabase.table("vocab_test_records")
-            .insert(
-                {
-                    "student_id": student_id,
-                    "source_type": source_type,
-                    "source_book_id": source_book_id,
-                    "source_unit_id": source_unit_id,
-                    "source_label": source_label,
-                    "test_type": test_type,
-                    "test_mode": test_mode,
-                    "total_count": total_count,
-                    "correct_count": correct_count,
-                    "accuracy": accuracy,
-                    "is_synced_to_progress": False,
-                    "is_wrong_retry_round": False,
-                }
-            )
+            .insert({
+                "student_id": student_id,
+                "source_type": payload.get("source_type"),
+                "source_book_id": payload.get("source_book_id"),
+                "source_unit_id": payload.get("source_unit_id"),
+                "source_label": source_label,
+                "test_type": payload.get("test_type"),
+                "test_mode": payload.get("test_mode"),
+                "total_count": total,
+                "correct_count": score,
+                "accuracy": accuracy,
+                "is_synced_to_progress": False,
+                "is_wrong_retry_round": False,
+            })
             .execute()
         )
         record_rows = record_resp.data or []
-        if not record_rows:
-            return False, "学生端检测结果暂未写入数据库。"
-        record_id = record_rows[0]["id"]
+        if record_rows:
+            test_record_id = record_rows[0]["id"]
 
-        item_payloads = []
-        for row in results:
-            item_payloads.append(
-                {
-                    "test_record_id": record_id,
-                    "vocab_item_id": row.get("vocab_item_id"),
-                    "word": row.get("word"),
-                    "meaning": row.get("meaning"),
-                    "mode": row.get("mode"),
-                    "user_answer": row.get("user_answer"),
-                    "is_correct": row.get("is_correct", False),
-                }
-            )
-        if item_payloads:
-            supabase.table("vocab_test_record_items").insert(item_payloads).execute()
-        return True, "检测结果已写入数据库。"
+        if test_record_id:
+            item_payloads = []
+            for r in results:
+                item_payloads.append({
+                    "test_record_id": test_record_id,
+                    "vocab_item_id": r["vocab_item_id"],
+                    "word": r["word"],
+                    "meaning": r["meaning"],
+                    "mode": r["mode"],
+                    "user_answer": r["user_answer"],
+                    "is_correct": r["is_correct"],
+                })
+            if item_payloads:
+                supabase.table("vocab_test_record_items").insert(item_payloads).execute()
     except Exception:
-        return False, "学生端检测已完成，但当前 RLS 可能未开放写入，所以没有保存到数据库。"
+        pass
+
+    return {
+        "score": score,
+        "total": total,
+        "accuracy": accuracy,
+        "results": results,
+        "test_record_id": test_record_id,
+    }
