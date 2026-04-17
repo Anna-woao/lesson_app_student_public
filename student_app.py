@@ -273,7 +273,7 @@ def _render_vocab_test(student_id: int):
 
 
             test_mode = st.selectbox("作答方式", ["英译中", "中译英", "混合模式"], key="student_book_test_mode")
-            test_count = st.selectbox("本次检测题数", [5, 10, 15, 20, 25], index=1, key="student_book_test_count")
+            test_count = st.selectbox("本次检测题数", [15, 25, 35, 45, 60], index=1, key="student_book_test_count")
 
             if st.button("开始词汇书抽词检测", key="start_student_book_test"):
                 ok, payload = dbs.build_book_test(
