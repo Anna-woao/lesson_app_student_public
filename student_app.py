@@ -196,7 +196,7 @@ def _render_test_history(student_id: int):
         st.write(f"记录时间：{created_at}")
         st.write(f"同步状态：{sync_tag}")
 
-        i        item_rows = dbs.get_vocab_test_record_items(test_record_id)
+        item_rows = dbs.get_vocab_test_record_items(test_record_id)
 
         with st.expander("查看本次检测反馈", expanded=False):
             # 把数据库返回的元组列表，转成和即时反馈区一致的字典格式
