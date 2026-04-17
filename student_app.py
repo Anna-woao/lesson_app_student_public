@@ -222,7 +222,7 @@ def _render_vocab_test(student_id: int):
     with mode_tab1:
         test_type = st.selectbox("检测类型", ["新词检测", "复习检测"], key="student_progress_test_type")
         test_mode = st.selectbox("作答方式", ["英译中", "中译英", "混合模式"], key="student_progress_test_mode")
-        test_count = st.selectbox("本次检测题数", [5, 10, 15, 20, 25], index=1, key="student_progress_test_count")
+        test_count = st.selectbox("本次检测题数", [15, 25, 35, 45, 60], index=1, key="student_progress_test_count")
 
         if st.button("开始学习进度检测", key="start_student_progress_test"):
             ok, payload = dbs.build_progress_test(student_id, test_type, test_mode, test_count)
