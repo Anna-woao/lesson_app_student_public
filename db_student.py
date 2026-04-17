@@ -342,25 +342,80 @@ def build_progress_test(student_id: int, test_type: str, test_mode: str, test_co
     return True, payload
 
 
-def build_book_test(student_id: int, book_id: int, unit_id: Optional[int], test_mode: str, test_count: int):
+def build_book_test(
+    student_id: int,
+    book_id: int,
+    unit_ids: Optional[List[int]],
+    test_mode: str,
+    test_count: int,
+):
+    """
+    从词汇书中抽题，支持“整本书”或“多个单元联合检测”。
+
+    参数说明：
+    - student_id:
+        当前学生 ID（这版先保留，后面如果要做更复杂的个性化抽词还可以继续用）
+    - book_id:
+        当前选择的词汇书 ID
+    - unit_ids:
+        None 或 []   -> 表示整本词汇书
+        [1, 2, 3]    -> 表示多个单元联合检测
+    - test_mode:
+        英译中 / 中译英 / 混合模式
+    - test_count:
+        本轮检测题数
+    """
     supabase = get_supabase_client()
+
     query = supabase.table("book_unit_vocab").select("vocab_item_id, book_id, unit_id")
     query = query.eq("book_id", book_id)
-    if unit_id is not None:
-        query = query.eq("unit_id", unit_id)
+
+    # ------------------------------
+    # 如果传了多个单元，就只从这些单元里抽
+    # 如果为空，就默认整本词汇书
+    # ------------------------------
+    if unit_ids:
+        query = query.in_("unit_id", unit_ids)
 
     rows = _fetch_all_rows(query)
     if not rows:
         return False, "当前范围内没有可用单词。"
-    random.shuffle(rows)
-    rows = rows[:test_count]
 
-    vocab_map = _fetch_vocab_map([r["vocab_item_id"] for r in rows if r.get("vocab_item_id") is not None])
-    questions = _build_questions_from_vocab_map(vocab_map, rows, test_mode)
+    # ------------------------------
+    # 去重：
+    # 1. 避免同一个词因为出现在多个单元里被重复抽到
+    # 2. 这样联合多单元检测时更稳定
+    # ------------------------------
+    deduped_rows = []
+    seen_vocab_ids = set()
+
+    for row in rows:
+        vocab_item_id = row.get("vocab_item_id")
+        if vocab_item_id is None:
+            continue
+        if vocab_item_id in seen_vocab_ids:
+            continue
+
+        seen_vocab_ids.add(vocab_item_id)
+        deduped_rows.append(row)
+
+    random.shuffle(deduped_rows)
+    deduped_rows = deduped_rows[:test_count]
+
+    vocab_map = _fetch_vocab_map(
+        [row["vocab_item_id"] for row in deduped_rows if row.get("vocab_item_id") is not None]
+    )
+    questions = _build_questions_from_vocab_map(vocab_map, deduped_rows, test_mode)
+
     payload = {
         "source_type": "book",
         "source_book_id": book_id,
-        "source_unit_id": unit_id,
+        # 数据表里目前只有一个 source_unit_id 字段
+        # 所以：
+        # - 只选了一个单元：正常写这个 unit_id
+        # - 选了多个单元 / 整本书：这里先记 None
+        "source_unit_id": unit_ids[0] if unit_ids and len(unit_ids) == 1 else None,
+        "selected_unit_ids": unit_ids or [],
         "test_type": "词汇书抽词检测",
         "test_mode": test_mode,
         "questions": questions,
