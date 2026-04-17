@@ -1,5 +1,6 @@
 """学生端入口（含词汇检测作答区）"""
 
+from html import escape
 import streamlit as st
 import db_student as dbs
 
@@ -7,6 +8,90 @@ st.set_page_config(page_title="英语辅导系统｜学生端", layout="wide")
 st.title("英语辅导系统｜学生端")
 st.write("这里是学生使用的前台页面。")
 
+def _render_test_feedback_blocks(results):
+    """
+    用更清楚的两个区块展示本次检测反馈。
+
+    展示结构：
+    1. 本次考察单词清单
+       - 只显示：序号 + 单词
+       - 不在这里堆太多判题信息，保证一眼能看清本轮考了什么
+
+    2. 错词订正区
+       - 只显示答错的词
+       - 错词本身用红色加粗突出
+       - 同时给出：你的答案 / 正确答案 / 标准词义
+    """
+    if not results:
+        st.info("当前没有可展示的检测反馈。")
+        return
+
+    # ------------------------------
+    # 区块 1：本次考察单词清单
+    # ------------------------------
+    st.markdown("### 本次考察单词清单")
+    for idx, item in enumerate(results, start=1):
+        st.write(f"{idx}. {item.get('word', '')}")
+
+    st.markdown("---")
+
+    # ------------------------------
+    # 区块 2：错词订正区
+    # ------------------------------
+    st.markdown("### 错词订正")
+
+    wrong_results = [item for item in results if not item.get("is_correct")]
+
+    if not wrong_results:
+        st.success("本轮没有错词，很棒。")
+        return
+
+    for idx, item in enumerate(wrong_results, start=1):
+        word = escape(str(item.get("word", "")))
+        meaning = escape(str(item.get("meaning", "") or ""))
+        mode = item.get("mode", "")
+        user_answer = escape(str(item.get("user_answer") or "（未作答）"))
+
+        # 根据题型决定“正确答案”展示什么
+        # 英译中：正确答案应是中文释义
+        # 中译英：正确答案应是英文单词
+        if mode == "英译中":
+            correct_answer = meaning
+        else:
+            correct_answer = word
+
+        st.markdown(
+            f"""
+            <div style="
+                margin-bottom: 14px;
+                padding: 10px 12px;
+                border: 1px solid #f3d6d6;
+                border-radius: 8px;
+                background: #fff8f8;
+            ">
+                <div style="
+                    color: #c62828;
+                    font-weight: 700;
+                    font-size: 18px;
+                ">
+                    {idx}. {word}
+                </div>
+
+                <div style="margin-top: 6px;">
+                    你的答案：{user_answer}
+                </div>
+
+                <div style="margin-top: 4px;">
+                    正确答案：{correct_answer}
+                </div>
+
+                <div style="margin-top: 4px; color: #666;">
+                    标准词义：{meaning}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 def _student_options(students):
     return {f"{name}（{grade}）": sid for sid, name, grade in students}
@@ -111,14 +196,23 @@ def _render_test_history(student_id: int):
         st.write(f"记录时间：{created_at}")
         st.write(f"同步状态：{sync_tag}")
 
-        item_rows = dbs.get_vocab_test_record_items(test_record_id)
-        with st.expander("查看本次检测明细", expanded=False):
-            for idx, item in enumerate(item_rows, start=1):
-                _vocab_item_id, word, meaning, mode, user_answer, is_correct = item
-                result_text = "正确" if is_correct else "错误"
-                st.write(
-                    f"{idx}. [{mode}] {word} - {meaning} | 你的答案：{user_answer if user_answer else '（未作答）'} | 结果：{result_text}"
-                )
+        i        item_rows = dbs.get_vocab_test_record_items(test_record_id)
+
+        with st.expander("查看本次检测反馈", expanded=False):
+            # 把数据库返回的元组列表，转成和即时反馈区一致的字典格式
+            results = []
+            for item in item_rows:
+                vocab_item_id, word, meaning, mode, user_answer, is_correct = item
+                results.append({
+                    "vocab_item_id": vocab_item_id,
+                    "word": word,
+                    "meaning": meaning,
+                    "mode": mode,
+                    "user_answer": user_answer,
+                    "is_correct": is_correct,
+                })
+
+            _render_test_feedback_blocks(results)
 
 
 def _render_vocab_test(student_id: int):
@@ -149,22 +243,58 @@ def _render_vocab_test(student_id: int):
             selected_book_label = st.selectbox("选择词汇书", list(book_options.keys()), key="student_book_test_book")
             selected_book_id = book_options[selected_book_label]
 
+            # ------------------------------
+            # 单元多选区
+            # 说明：
+            # 1. 这里改成 multiselect，实现“可一次选择多个单元检测”
+            # 2. 如果一个单元都不选，默认表示“整本词汇书”
+            # 3. Streamlit 原生没有“下拉项前带 checkbox”的真正控件，
+            #    multiselect 是当前最稳、最原生的多选方案
+            # ------------------------------
             units = dbs.get_units_by_book(selected_book_id)
-            unit_options = {"整本词汇书": None}
-            for unit_id, unit_name, _unit_order in units:
-                unit_options[unit_name] = unit_id
 
-            selected_unit_label = st.selectbox("选择单元", list(unit_options.keys()), key="student_book_test_unit")
-            selected_unit_id = unit_options[selected_unit_label]
+            unit_name_to_id = {}
+            for unit_id, unit_name, _unit_order in units:
+                unit_name_to_id[unit_name] = unit_id
+
+            selected_unit_labels = st.multiselect(
+                "选择单元（可多选；如果一个都不选，默认检测整本词汇书）",
+                options=list(unit_name_to_id.keys()),
+                default=[],
+                key="student_book_test_units",
+            )
+
+            selected_unit_ids = [unit_name_to_id[label] for label in selected_unit_labels]
+
+            if selected_unit_labels:
+                st.caption("当前已选择单元：" + " / ".join(selected_unit_labels))
+            else:
+                st.caption("当前范围：整本词汇书")
+
+
             test_mode = st.selectbox("作答方式", ["英译中", "中译英", "混合模式"], key="student_book_test_mode")
             test_count = st.selectbox("本次检测题数", [5, 10, 15, 20, 25], index=1, key="student_book_test_count")
 
             if st.button("开始词汇书抽词检测", key="start_student_book_test"):
-                ok, payload = dbs.build_book_test(student_id, selected_book_id, selected_unit_id, test_mode, test_count)
+                ok, payload = dbs.build_book_test(
+                    student_id,
+                    selected_book_id,
+                    selected_unit_ids,
+                    test_mode,
+                    test_count,
+                )
+
                 if ok:
+                    # 开始新一轮检测前，清掉上一轮结果，避免旧结果残留
+                    st.session_state.pop("student_test_result", None)
+
                     st.session_state["student_test_payload"] = payload
-                    scope = selected_unit_label if selected_unit_label else "整本词汇书"
-                    st.session_state["student_test_source_label"] = f"词汇书抽词检测：{selected_book_label} / {scope}"
+
+                    scope = " / ".join(selected_unit_labels) if selected_unit_labels else "整本词汇书"
+                    st.session_state["student_test_source_label"] = (
+                        f"词汇书抽词检测：{selected_book_label} / {scope}"
+                    )
+
                     st.success("已开始词汇书抽词检测。")
                     st.rerun()
                 else:
@@ -178,6 +308,11 @@ def _render_vocab_test(student_id: int):
             st.subheader("本次检测结果")
             st.write(f"得分：{result['score']} / {result['total']}")
             st.write(f"正确率：{result['accuracy']:.0%}")
+
+            # ------------------------------
+            # 用新的清晰版反馈区替代旧的逐题流水账
+            # ------------------------------
+            _render_test_feedback_blocks(result.get("results", []))
         return
 
     st.markdown("---")
