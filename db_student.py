@@ -2,10 +2,43 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import random
+import secrets
 from typing import Dict, List, Optional, Tuple
 
 from supabase_client import get_supabase_client
+
+
+PASSWORD_HASH_ITERATIONS = 200_000
+
+
+def _make_password_hash(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        PASSWORD_HASH_ITERATIONS,
+    ).hex()
+    return f"pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt}${digest}"
+
+
+def _check_password_hash(password: str, password_hash: str) -> bool:
+    try:
+        algorithm, iterations, salt, expected_digest = password_hash.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        digest = hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode("utf-8"),
+            salt.encode("utf-8"),
+            int(iterations),
+        ).hex()
+    except Exception:
+        return False
+    return hmac.compare_digest(digest, expected_digest)
 
 
 def _fetch_all_rows(query_builder, page_size: int = 1000):
@@ -26,6 +59,101 @@ def get_all_students():
     resp = supabase.table("students").select("id, name, grade").order("id", desc=False).execute()
     rows = resp.data or []
     return [(row["id"], row["name"], row["grade"]) for row in rows]
+
+
+def authenticate_student(login_account: str, login_password: str):
+    account = (login_account or "").strip()
+    password = (login_password or "").strip()
+    if not account or not password:
+        return None
+
+    supabase = get_supabase_client()
+    resp = (
+        supabase.table("students")
+        .select("id, name, grade, login_account, login_password, login_password_hash")
+        .eq("login_account", account)
+        .limit(1)
+        .execute()
+    )
+    rows = resp.data or []
+    if not rows:
+        return None
+
+    row = rows[0]
+    password_hash = row.get("login_password_hash") or ""
+    legacy_password = row.get("login_password") or ""
+
+    if password_hash:
+        if not _check_password_hash(password, password_hash):
+            return None
+    elif legacy_password:
+        if not hmac.compare_digest(password, legacy_password):
+            return None
+        supabase.table("students").update({
+            "login_password_hash": _make_password_hash(password),
+            "login_password": None,
+        }).eq("id", row["id"]).execute()
+    else:
+        return None
+
+    return {
+        "id": row["id"],
+        "name": row.get("name", ""),
+        "grade": row.get("grade", ""),
+        "login_account": row.get("login_account", ""),
+    }
+
+
+def get_student_login_accounts():
+    supabase = get_supabase_client()
+    resp = (
+        supabase.table("students")
+        .select("id, name, grade, login_account, login_password, login_password_hash")
+        .order("id", desc=False)
+        .execute()
+    )
+    rows = resp.data or []
+    return [
+        (
+            row["id"],
+            row.get("name", ""),
+            row.get("grade", ""),
+            row.get("login_account", "") or "",
+            bool(row.get("login_password_hash") or row.get("login_password")),
+        )
+        for row in rows
+    ]
+
+
+def update_student_login_account(student_id: int, login_account: str, login_password: str):
+    account = (login_account or "").strip()
+    password = (login_password or "").strip()
+    if not account:
+        return False, "账号不能为空。"
+
+    supabase = get_supabase_client()
+    duplicate_resp = (
+        supabase.table("students")
+        .select("id")
+        .eq("login_account", account)
+        .neq("id", student_id)
+        .limit(1)
+        .execute()
+    )
+    if duplicate_resp.data:
+        return False, "这个账号已经被其他学生使用。"
+
+    update_payload = {
+        "login_account": account,
+    }
+    if password:
+        update_payload["login_password_hash"] = _make_password_hash(password)
+        update_payload["login_password"] = None
+
+    supabase.table("students").update(update_payload).eq("id", student_id).execute()
+    if password:
+        return True, "学生账号已保存，密码已重置。"
+    return True, "学生账号已保存，密码未更改。"
 
 
 def get_student_recent_lessons(student_id: int, limit: int = 10):

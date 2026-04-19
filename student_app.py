@@ -93,8 +93,51 @@ def _render_test_feedback_blocks(results):
             unsafe_allow_html=True,
         )
 
-def _student_options(students):
-    return {f"{name}（{grade}）": sid for sid, name, grade in students}
+def _render_login():
+    st.info("请输入老师分配给你的账号和密码。")
+
+    with st.form("student_login_form"):
+        login_account = st.text_input("账号")
+        login_password = st.text_input("密码", type="password")
+        submitted = st.form_submit_button("登录")
+
+    if not submitted:
+        return None
+
+    try:
+        student = dbs.authenticate_student(login_account, login_password)
+    except Exception as e:
+        st.error("登录功能暂时不可用，请联系老师检查学生账号字段是否已经配置。")
+        st.exception(e)
+        return None
+
+    if not student:
+        st.error("账号或密码不正确。")
+        return None
+
+    st.session_state["student_login"] = student
+    st.session_state.pop("student_test_payload", None)
+    st.session_state.pop("student_test_result", None)
+    st.session_state.pop("selected_lesson_id", None)
+    st.rerun()
+
+
+def _render_logged_in_header(student):
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.header(f"欢迎，{student['name']}")
+        if student.get("grade"):
+            st.caption(f"年级：{student['grade']}")
+    with col2:
+        if st.button("退出登录", key="student_logout"):
+            for key in [
+                "student_login",
+                "student_test_payload",
+                "student_test_result",
+                "selected_lesson_id",
+            ]:
+                st.session_state.pop(key, None)
+            st.rerun()
 
 
 def _render_lessons(student_id: int):
@@ -348,17 +391,13 @@ def _render_vocab_test(student_id: int):
 
 
 def main():
-    st.info("当前版本先用“选择学生”模拟登录。后面再升级成学生账号 / 邀请码登录。")
-    students = dbs.get_all_students()
-    if not students:
-        st.warning("当前还没有学生。")
+    student = st.session_state.get("student_login")
+    if not student:
+        _render_login()
         return
 
-    options = _student_options(students)
-    selected_label = st.selectbox("请选择你的身份", list(options.keys()))
-    student_id = options[selected_label]
-    name = selected_label.split("（")[0]
-    st.header(f"欢迎，{name}")
+    student_id = student["id"]
+    _render_logged_in_header(student)
 
     _render_lessons(student_id)
     st.markdown("---")
