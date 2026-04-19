@@ -55,6 +55,9 @@ def ensure_students_table(cursor):
     - id
     - name
     - grade
+    - login_account
+    - login_password（兼容旧版明文密码）
+    - login_password_hash
     - memory_score（学生整体记忆参数）
     """
     cursor.execute("""
@@ -62,12 +65,27 @@ def ensure_students_table(cursor):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             grade TEXT NOT NULL,
+            login_account TEXT UNIQUE,
+            login_password TEXT,
+            login_password_hash TEXT,
             memory_score REAL DEFAULT 3.0
         )
     """)
 
-    # 兼容旧版数据库：补 memory_score 字段
+    # 兼容旧版数据库：补学生登录字段和 memory_score 字段
     columns = get_table_columns(cursor, "students")
+    if "login_account" not in columns:
+        cursor.execute(
+            "ALTER TABLE students ADD COLUMN login_account TEXT"
+        )
+    if "login_password" not in columns:
+        cursor.execute(
+            "ALTER TABLE students ADD COLUMN login_password TEXT"
+        )
+    if "login_password_hash" not in columns:
+        cursor.execute(
+            "ALTER TABLE students ADD COLUMN login_password_hash TEXT"
+        )
     if "memory_score" not in columns:
         cursor.execute(
             "ALTER TABLE students ADD COLUMN memory_score REAL DEFAULT 3.0"
