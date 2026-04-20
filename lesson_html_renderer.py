@@ -911,15 +911,15 @@ def build_part2_html_table(rows):
         """
     <table class="lesson-table">
         <colgroup>
-            <col style="width: 4.5%;">
-            <col style="width: 18.5%;">
-            <col style="width: 10.3%;">
-            <col style="width: 4.5%;">
-            <col style="width: 18.5%;">
-            <col style="width: 10.3%;">
-            <col style="width: 4.5%;">
-            <col style="width: 18.5%;">
-            <col style="width: 10.4%;">
+            <col style="width: 4.2%;">
+            <col style="width: 15.8%;">
+            <col style="width: 13.3%;">
+            <col style="width: 4.2%;">
+            <col style="width: 15.8%;">
+            <col style="width: 13.3%;">
+            <col style="width: 4.2%;">
+            <col style="width: 15.8%;">
+            <col style="width: 13.4%;">
         </colgroup>
         <thead>
             <tr>
