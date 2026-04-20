@@ -1,8 +1,13 @@
 """学生端入口（含词汇检测作答区）"""
 
 from html import escape
+import re
+
 import streamlit as st
+import streamlit.components.v1 as components
+
 import db_student as dbs
+from app_ui_helpers import build_downloadable_lesson_html, parse_lesson_text_to_parts
 
 st.set_page_config(page_title="英语辅导系统｜学生端", layout="wide")
 st.title("英语辅导系统｜学生端")
@@ -93,6 +98,33 @@ def _render_test_feedback_blocks(results):
             unsafe_allow_html=True,
         )
 
+
+def _sanitize_filename_part(text: str) -> str:
+    if not text:
+        return ""
+    text = str(text).strip()
+    text = re.sub(r'[\\/:*?"<>|]+', "_", text)
+    text = re.sub(r"\s+", "_", text)
+    return text.strip("_")
+
+
+def _build_lesson_html_filename(student: dict, lesson: dict) -> str:
+    student_name = _sanitize_filename_part(student.get("name", "学生"))
+    lesson_id = _sanitize_filename_part(lesson.get("id") or lesson.get("lesson_id") or "")
+    lesson_type = _sanitize_filename_part(lesson.get("lesson_type") or "学案")
+    topic = _sanitize_filename_part(lesson.get("topic") or "")
+    parts = [student_name, lesson_type, topic, f"lesson_{lesson_id}" if lesson_id else ""]
+    file_stem = "_".join([part for part in parts if part]) or "英语学案"
+    return f"{file_stem}.html"
+
+
+def _build_lesson_download_html(lesson: dict) -> str:
+    parts = parse_lesson_text_to_parts(lesson.get("content", ""))
+    title_bits = [str(lesson.get("lesson_type") or "英语学案"), str(lesson.get("topic") or "")]
+    title = " - ".join([bit for bit in title_bits if bit])
+    return build_downloadable_lesson_html(parts, title=title or "英语学案")
+
+
 def _render_login():
     st.info("请输入老师分配给你的账号和密码。")
 
@@ -160,7 +192,22 @@ def _render_lessons(student_id: int):
     if selected_lesson_id:
         detail = dbs.get_lesson_detail_for_student(student_id, selected_lesson_id)
         if detail:
-            with st.expander("完整学案内容", expanded=True):
+            html_doc = _build_lesson_download_html(detail)
+            st.download_button(
+                label="下载网页版 HTML（可用浏览器打印 PDF）",
+                data=html_doc,
+                file_name=_build_lesson_html_filename(st.session_state.get("student_login", {}), detail),
+                mime="text/html",
+                key=f"download_lesson_html_{selected_lesson_id}",
+            )
+            with st.expander("网页版预览（和教师端打印格式一致）", expanded=True):
+                preview_parts = parse_lesson_text_to_parts(detail.get("content", ""))
+                components.html(
+                    build_downloadable_lesson_html(preview_parts, title="英语学案"),
+                    height=900,
+                    scrolling=True,
+                )
+            with st.expander("查看纯文本内容", expanded=False):
                 st.text_area(
                     "lesson_content",
                     value=detail.get("content", ""),
