@@ -184,6 +184,67 @@ def get_lesson_detail_for_student(student_id: int, lesson_id: int):
     return rows[0] if rows else None
 
 
+def get_lesson_new_vocab_for_student(student_id: int, lesson_id: int):
+    supabase = get_supabase_client()
+    lesson_resp = (
+        supabase.table("lessons")
+        .select("id")
+        .eq("student_id", student_id)
+        .eq("id", lesson_id)
+        .limit(1)
+        .execute()
+    )
+    if not (lesson_resp.data or []):
+        return []
+
+    link_rows = (
+        supabase.table("lesson_vocab_items")
+        .select("vocab_item_id, word_type")
+        .eq("lesson_id", lesson_id)
+        .execute()
+    ).data or []
+
+    new_vocab_ids = []
+    seen_ids = set()
+    for row in link_rows:
+        word_type = (row.get("word_type") or "").strip().lower()
+        vocab_item_id = row.get("vocab_item_id")
+        if word_type not in {"new", "新词"} or vocab_item_id is None:
+            continue
+        if vocab_item_id in seen_ids:
+            continue
+        seen_ids.add(vocab_item_id)
+        new_vocab_ids.append(vocab_item_id)
+
+    if not new_vocab_ids:
+        return []
+
+    vocab_rows = (
+        supabase.table("vocab_items")
+        .select("id, lemma, pos, ipa_br, ipa_am, default_meaning, example_en, example_zh")
+        .in_("id", new_vocab_ids)
+        .execute()
+    ).data or []
+    vocab_map = {row["id"]: row for row in vocab_rows}
+
+    result = []
+    for vocab_item_id in new_vocab_ids:
+        row = vocab_map.get(vocab_item_id)
+        if not row:
+            continue
+        result.append({
+            "id": vocab_item_id,
+            "lemma": row.get("lemma", ""),
+            "pos": row.get("pos", ""),
+            "ipa_br": row.get("ipa_br", ""),
+            "ipa_am": row.get("ipa_am", ""),
+            "meaning": row.get("default_meaning", "") or "",
+            "example_en": row.get("example_en", "") or "",
+            "example_zh": row.get("example_zh", "") or "",
+        })
+    return result
+
+
 def get_student_learned_vocab(student_id: int, limit: int = 200):
     supabase = get_supabase_client()
     prog = (

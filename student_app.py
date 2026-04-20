@@ -2,6 +2,7 @@
 
 from html import escape
 import streamlit as st
+import streamlit.components.v1 as components
 import db_student as dbs
 
 st.set_page_config(page_title="英语辅导系统｜学生端", layout="wide")
@@ -118,7 +119,6 @@ def _render_login():
     st.session_state["student_login"] = student
     st.session_state.pop("student_test_payload", None)
     st.session_state.pop("student_test_result", None)
-    st.session_state.pop("selected_lesson_id", None)
     st.rerun()
 
 
@@ -134,10 +134,93 @@ def _render_logged_in_header(student):
                 "student_login",
                 "student_test_payload",
                 "student_test_result",
-                "selected_lesson_id",
             ]:
                 st.session_state.pop(key, None)
             st.rerun()
+
+
+def _looks_like_html(content: str) -> bool:
+    lowered = (content or "").lower()
+    return "<html" in lowered or "<body" in lowered or "<!doctype" in lowered
+
+
+def _render_lesson_content(detail):
+    content = detail.get("content", "") or ""
+    if not content:
+        st.info("这份学案暂时没有内容。")
+        return
+
+    st.download_button(
+        "下载网页 HTML（可用浏览器打印 PDF）",
+        data=content,
+        file_name=f"lesson_{detail.get('id', 'content')}.html",
+        mime="text/html",
+        key=f"download_lesson_html_{detail.get('id')}",
+    )
+
+    preview_tab, text_tab = st.tabs(["网页预览", "纯文本内容"])
+    with preview_tab:
+        if _looks_like_html(content):
+            components.html(content, height=650, scrolling=True)
+        else:
+            st.markdown(content)
+    with text_tab:
+        st.text_area(
+            "完整学案内容",
+            value=content,
+            height=650,
+            key=f"lesson_content_{detail.get('id')}",
+        )
+
+
+def _render_lesson_vocab_rows(rows):
+    if not rows:
+        st.info("这份学案暂时没有记录新词。")
+        return
+
+    for idx, item in enumerate(rows, start=1):
+        lemma = item.get("lemma", "")
+        pos = item.get("pos", "")
+        ipa_br = item.get("ipa_br", "")
+        ipa_am = item.get("ipa_am", "")
+        meaning = item.get("meaning", "")
+        example_en = item.get("example_en", "")
+        example_zh = item.get("example_zh", "")
+
+        st.markdown(f"### {idx}. {lemma}")
+        if pos:
+            st.write(f"词性：{pos}")
+        if ipa_br or ipa_am:
+            st.write(f"音标：英 {ipa_br or '-'} / 美 {ipa_am or '-'}")
+        if meaning:
+            st.write(f"释义：{meaning}")
+        if example_en:
+            st.write(f"例句：{example_en}")
+        if example_zh:
+            st.write(f"译文：{example_zh}")
+        st.markdown("---")
+
+
+@st.dialog("完整学案")
+def _show_lesson_detail_dialog(student_id: int, lesson_id: int):
+    detail = dbs.get_lesson_detail_for_student(student_id, lesson_id)
+    if not detail:
+        st.warning("没有找到这份学案，或这份学案不属于当前学生。")
+        return
+
+    st.write(f"学案 ID：{detail.get('id')}")
+    st.write(f"类型：{detail.get('lesson_type')}")
+    st.write(f"主题：{detail.get('topic')}")
+    st.write(f"创建时间：{detail.get('created_at')}")
+    _render_lesson_content(detail)
+
+
+@st.dialog("本次学案新词表")
+def _show_lesson_vocab_dialog(student_id: int, lesson_id: int):
+    rows = dbs.get_lesson_new_vocab_for_student(student_id, lesson_id)
+    st.write(f"学案 ID：{lesson_id}")
+    st.write(f"新词数量：{len(rows)}")
+    _render_lesson_vocab_rows(rows)
 
 
 def _render_lessons(student_id: int):
@@ -153,20 +236,13 @@ def _render_lessons(student_id: int):
         st.write(f"难度：{difficulty}")
         st.write(f"主题：{topic}")
         st.write(f"创建时间：{created_at}")
-        if st.button("查看完整学案", key=f"view_lesson_{lesson_id}"):
-            st.session_state["selected_lesson_id"] = lesson_id
-
-    selected_lesson_id = st.session_state.get("selected_lesson_id")
-    if selected_lesson_id:
-        detail = dbs.get_lesson_detail_for_student(student_id, selected_lesson_id)
-        if detail:
-            with st.expander("完整学案内容", expanded=True):
-                st.text_area(
-                    "lesson_content",
-                    value=detail.get("content", ""),
-                    height=500,
-                    key=f"lesson_content_{selected_lesson_id}",
-                )
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("查看完整学案", key=f"view_lesson_{lesson_id}"):
+                _show_lesson_detail_dialog(student_id, lesson_id)
+        with col2:
+            if st.button("查看本次学案新词表", key=f"view_lesson_vocab_{lesson_id}"):
+                _show_lesson_vocab_dialog(student_id, lesson_id)
 
 
 def _render_learned_words(student_id: int):
