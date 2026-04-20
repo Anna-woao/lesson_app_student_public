@@ -7,7 +7,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 import db_student as dbs
-from app_ui_helpers import build_downloadable_lesson_html, parse_lesson_text_to_parts
+from lesson_html_renderer import build_downloadable_lesson_html, parse_lesson_text_to_parts
 
 st.set_page_config(page_title="英语辅导系统｜学生端", layout="wide")
 st.title("英语辅导系统｜学生端")
@@ -477,3 +477,4 @@ def _safe_render(section_name: str, render_func, student_id: int):
 
 if __name__ == "__main__":
     main()
+
