@@ -406,34 +406,39 @@ def _render_vocab_test(student_id: int):
         return
 
     st.markdown("---")
-    st.subheader("开始作答")
-    user_answers = {}
+    st.subheader("????")
+    st.caption("??????????????????????????????????????")
 
-    for idx, q in enumerate(payload["questions"], start=1):
-        st.markdown(f"### 第 {idx} 题")
-        st.caption(f"本题题型：{q['mode']}")
-        if q["mode"] == "英译中":
-            user_answers[q["vocab_item_id"]] = st.radio(
-                f"请选择 **{q['word']}** 的中文意思：",
-                q["options"],
-                key=f"student_mcq_{q['vocab_item_id']}",
-            )
-        else:
-            user_answers[q["vocab_item_id"]] = st.text_input(
-                f"请根据中文意思写出英文：**{q['meaning']}**",
-                key=f"student_text_{q['vocab_item_id']}",
-            )
+    with st.form("student_vocab_test_form", clear_on_submit=False):
+        user_answers = {}
 
-    if st.button("提交检测", key="submit_student_test"):
+        for idx, q in enumerate(payload["questions"], start=1):
+            st.markdown(f"### ? {idx} ?")
+            st.caption(f"?????{q['mode']}")
+            if q["mode"] == "???":
+                user_answers[q["vocab_item_id"]] = st.radio(
+                    f"??? **{q['word']}** ??????",
+                    q["options"],
+                    key=f"student_mcq_{q['vocab_item_id']}",
+                )
+            else:
+                user_answers[q["vocab_item_id"]] = st.text_input(
+                    f"????????????**{q['meaning']}**",
+                    key=f"student_text_{q['vocab_item_id']}",
+                )
+
+        submitted = st.form_submit_button("????")
+
+    if submitted:
         result = dbs.submit_student_test(
             student_id=student_id,
             payload=payload,
             user_answers=user_answers,
-            source_label=st.session_state.get("student_test_source_label", "学生检测"),
+            source_label=st.session_state.get("student_test_source_label", "????"),
         )
         st.session_state["student_test_result"] = result
         st.session_state.pop("student_test_payload", None)
-        st.success(f"提交完成：{result['score']} / {result['total']}")
+        st.success(f"?????{result['score']} / {result['total']}")
         st.rerun()
 
 
