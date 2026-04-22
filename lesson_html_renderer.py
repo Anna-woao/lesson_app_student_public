@@ -6,6 +6,7 @@ can share the same browser-print HTML output without copying UI code.
 
 from html import escape
 import re
+from lesson_layout import parse_part3_blocks
 
 def _clean_lines(text: str):
     return [line.rstrip() for line in (text or '').splitlines() if line.strip()]
@@ -973,14 +974,21 @@ def build_part2_html_table(rows):
 
 
 def build_part3_html(passage_text: str, highlight_words):
-    clean_text = _remove_part_title_if_needed(passage_text, 'Part 3 Reading Passage')
-    paragraphs = [p.strip() for p in re.split(r'\n\s*\n', clean_text) if p.strip()]
-    if not paragraphs:
-        paragraphs = _clean_lines(clean_text)
+    blocks = parse_part3_blocks(passage_text)
+    if not blocks:
+        clean_text = _remove_part_title_if_needed(passage_text, 'Part 3 Reading Passage')
+        blocks = [{"type": "paragraph", "text": para} for para in _clean_lines(clean_text)]
 
-    paragraph_html = []
-    for para in paragraphs:
-        paragraph_html.append(f"<p>{_highlight_keywords(para, highlight_words)}</p>")
+    block_html = []
+    for block in blocks:
+        text = block.get("text", "").strip()
+        if not text:
+            continue
+        highlighted = _highlight_keywords(text, highlight_words)
+        if block.get("type") == "heading":
+            block_html.append(f'<div class="lesson-subtitle" style="margin-top:10px; margin-bottom:6px;">{highlighted}</div>')
+        else:
+            block_html.append(f"<p>{highlighted}</p>")
 
     return f"""
     <div class="lesson-note-box">
@@ -989,7 +997,7 @@ def build_part3_html(passage_text: str, highlight_words):
             建议学生在阅读时直接在文章旁边标注：生词释义、关键句结构和句子翻译。为了方便批注，正文行距已加大。
         </div>
         <div class="lesson-passage">
-            {''.join(paragraph_html)}
+            {''.join(block_html)}
         </div>
     </div>
     """
