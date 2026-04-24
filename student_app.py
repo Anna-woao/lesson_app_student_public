@@ -223,6 +223,40 @@ def _show_lesson_vocab_dialog(student_id: int, lesson_id: int):
     _render_lesson_vocab_rows(rows)
 
 
+def _render_learned_word_groups(groups):
+    if not groups:
+        st.info("你目前还没有可展示的已学单词。")
+        return
+
+    for group in groups:
+        created_at = group.get("created_at", "")
+        lesson_type = group.get("lesson_type", "") or "未标注类型"
+        topic = group.get("topic", "") or "未标注主题"
+        lesson_id = group.get("lesson_id")
+        word_count = group.get("word_count", 0)
+        title = f"{created_at}｜学案 {lesson_id}｜{lesson_type}｜{topic}（{word_count}词）"
+
+        with st.expander(title, expanded=False):
+            for idx, word in enumerate(group.get("words", []), start=1):
+                lemma = word.get("lemma", "")
+                meaning = word.get("meaning", "")
+                if meaning:
+                    st.write(f"{idx}. {lemma} - {meaning}")
+                else:
+                    st.write(f"{idx}. {lemma}")
+
+
+@st.dialog("我的已学单词")
+def _show_learned_words_dialog(student_id: int):
+    summary = dbs.get_student_learned_vocab_summary(student_id)
+    total_unique_words = summary.get("total_unique_words", 0)
+    lesson_groups = summary.get("lesson_groups", [])
+
+    st.subheader(f"已学单词总数：{total_unique_words}")
+    st.caption("按学案分类查看：哪天、哪份学案里学了哪些词。")
+    _render_learned_word_groups(lesson_groups)
+
+
 def _render_lessons(student_id: int):
     st.header("我的最近学案")
     lessons = dbs.get_student_recent_lessons(student_id, limit=10)
@@ -247,16 +281,23 @@ def _render_lessons(student_id: int):
 
 def _render_learned_words(student_id: int):
     st.header("我的已学单词")
-    rows = dbs.get_student_learned_vocab(student_id, limit=200)
-    if not rows:
+    summary = dbs.get_student_learned_vocab_summary(student_id)
+    total_unique_words = summary.get("total_unique_words", 0)
+    lesson_groups = summary.get("lesson_groups", [])
+
+    if total_unique_words == 0:
         st.info("你目前还没有已学习单词。")
         return
 
-    for i, row in enumerate(rows, start=1):
-        lemma, meaning, status, review_count, error_count, memory_score, *_ = row
-        st.write(
-            f"{i}. {lemma} - {meaning} | 状态：{status} | 复习次数：{review_count} | 错误次数：{error_count} | 记忆评分：{memory_score}"
-        )
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        st.metric("已学单词总数", total_unique_words)
+    with col2:
+        st.caption(f"共关联 {len(lesson_groups)} 份学案。")
+        st.write("主页面先只显示摘要，详细单词列表放到弹窗里查看。")
+
+    if st.button("查看按学案分类的已学单词", key="view_learned_words_dialog"):
+        _show_learned_words_dialog(student_id)
 
 
 def _render_progress(student_id: int):
