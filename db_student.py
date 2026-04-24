@@ -184,6 +184,67 @@ def get_lesson_detail_for_student(student_id: int, lesson_id: int):
     return rows[0] if rows else None
 
 
+def get_lesson_new_vocab_for_student(student_id: int, lesson_id: int):
+    supabase = get_supabase_client()
+    lesson_resp = (
+        supabase.table("lessons")
+        .select("id")
+        .eq("student_id", student_id)
+        .eq("id", lesson_id)
+        .limit(1)
+        .execute()
+    )
+    if not (lesson_resp.data or []):
+        return []
+
+    link_rows = (
+        supabase.table("lesson_vocab_items")
+        .select("vocab_item_id, word_type")
+        .eq("lesson_id", lesson_id)
+        .execute()
+    ).data or []
+
+    new_vocab_ids = []
+    seen_ids = set()
+    for row in link_rows:
+        word_type = (row.get("word_type") or "").strip().lower()
+        vocab_item_id = row.get("vocab_item_id")
+        if word_type not in {"new", "新词"} or vocab_item_id is None:
+            continue
+        if vocab_item_id in seen_ids:
+            continue
+        seen_ids.add(vocab_item_id)
+        new_vocab_ids.append(vocab_item_id)
+
+    if not new_vocab_ids:
+        return []
+
+    vocab_rows = (
+        supabase.table("vocab_items")
+        .select("id, lemma, pos, ipa_br, ipa_am, default_meaning, example_en, example_zh")
+        .in_("id", new_vocab_ids)
+        .execute()
+    ).data or []
+    vocab_map = {row["id"]: row for row in vocab_rows}
+
+    result = []
+    for vocab_item_id in new_vocab_ids:
+        row = vocab_map.get(vocab_item_id)
+        if not row:
+            continue
+        result.append({
+            "id": vocab_item_id,
+            "lemma": row.get("lemma", ""),
+            "pos": row.get("pos", ""),
+            "ipa_br": row.get("ipa_br", ""),
+            "ipa_am": row.get("ipa_am", ""),
+            "meaning": row.get("default_meaning", "") or "",
+            "example_en": row.get("example_en", "") or "",
+            "example_zh": row.get("example_zh", "") or "",
+        })
+    return result
+
+
 def get_student_learned_vocab(student_id: int, limit: int = 200):
     supabase = get_supabase_client()
     prog = (
@@ -223,6 +284,90 @@ def get_student_learned_vocab(student_id: int, limit: int = 200):
                 row.get("next_review_time"),
             ))
     return result
+
+
+def get_student_learned_vocab_summary(student_id: int):
+    supabase = get_supabase_client()
+    lesson_rows = (
+        supabase.table("lessons")
+        .select("id, lesson_type, topic, created_at")
+        .eq("student_id", student_id)
+        .order("created_at", desc=True)
+        .limit(100)
+        .execute()
+    ).data or []
+
+    if not lesson_rows:
+        return {"total_unique_words": 0, "lesson_groups": []}
+
+    lesson_ids = [row["id"] for row in lesson_rows if row.get("id") is not None]
+    link_rows = (
+        supabase.table("lesson_vocab_items")
+        .select("lesson_id, vocab_item_id, word_type")
+        .in_("lesson_id", lesson_ids)
+        .execute()
+    ).data or []
+
+    vocab_ids = []
+    seen_vocab_ids = set()
+    lesson_vocab_ids = {}
+
+    for row in link_rows:
+        lesson_id = row.get("lesson_id")
+        vocab_item_id = row.get("vocab_item_id")
+        if lesson_id is None or vocab_item_id is None:
+            continue
+        lesson_vocab_ids.setdefault(lesson_id, [])
+        if vocab_item_id in lesson_vocab_ids[lesson_id]:
+            continue
+        lesson_vocab_ids[lesson_id].append(vocab_item_id)
+        if vocab_item_id in seen_vocab_ids:
+            continue
+        seen_vocab_ids.add(vocab_item_id)
+        vocab_ids.append(vocab_item_id)
+
+    vocab_map = {}
+    if vocab_ids:
+        vocab_rows = (
+            supabase.table("vocab_items")
+            .select("id, lemma, default_meaning")
+            .in_("id", vocab_ids)
+            .execute()
+        ).data or []
+        vocab_map = {
+            row["id"]: {
+                "lemma": row.get("lemma", ""),
+                "meaning": row.get("default_meaning", "") or "",
+            }
+            for row in vocab_rows
+        }
+
+    lesson_groups = []
+    for lesson in lesson_rows:
+        lesson_id = lesson.get("id")
+        vocab_list = []
+        for vocab_item_id in lesson_vocab_ids.get(lesson_id, []):
+            vocab = vocab_map.get(vocab_item_id)
+            if not vocab or not vocab.get("lemma"):
+                continue
+            vocab_list.append(vocab)
+
+        if not vocab_list:
+            continue
+
+        lesson_groups.append({
+            "lesson_id": lesson_id,
+            "lesson_type": lesson.get("lesson_type", ""),
+            "topic": lesson.get("topic", ""),
+            "created_at": lesson.get("created_at", ""),
+            "word_count": len(vocab_list),
+            "words": vocab_list,
+        })
+
+    return {
+        "total_unique_words": len(seen_vocab_ids),
+        "lesson_groups": lesson_groups,
+    }
 
 
 def get_student_book_progress(student_id: int):
