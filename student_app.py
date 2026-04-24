@@ -2,10 +2,8 @@
 
 from html import escape
 import re
-
 import streamlit as st
 import streamlit.components.v1 as components
-
 import db_student as dbs
 from lesson_html_renderer import build_downloadable_lesson_html, parse_lesson_text_to_parts
 
@@ -98,6 +96,50 @@ def _render_test_feedback_blocks(results):
             unsafe_allow_html=True,
         )
 
+def _render_login():
+    st.info("请输入老师分配给你的账号和密码。")
+
+    with st.form("student_login_form"):
+        login_account = st.text_input("账号")
+        login_password = st.text_input("密码", type="password")
+        submitted = st.form_submit_button("登录")
+
+    if not submitted:
+        return None
+
+    try:
+        student = dbs.authenticate_student(login_account, login_password)
+    except Exception as e:
+        st.error("登录功能暂时不可用，请联系老师检查学生账号字段是否已经配置。")
+        st.exception(e)
+        return None
+
+    if not student:
+        st.error("账号或密码不正确。")
+        return None
+
+    st.session_state["student_login"] = student
+    st.session_state.pop("student_test_payload", None)
+    st.session_state.pop("student_test_result", None)
+    st.rerun()
+
+
+def _render_logged_in_header(student):
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.header(f"欢迎，{student['name']}")
+        if student.get("grade"):
+            st.caption(f"年级：{student['grade']}")
+    with col2:
+        if st.button("退出登录", key="student_logout"):
+            for key in [
+                "student_login",
+                "student_test_payload",
+                "student_test_result",
+            ]:
+                st.session_state.pop(key, None)
+            st.rerun()
+
 
 def _sanitize_filename_part(text: str) -> str:
     if not text:
@@ -125,51 +167,124 @@ def _build_lesson_download_html(lesson: dict) -> str:
     return build_downloadable_lesson_html(parts, title=title or "英语学案")
 
 
-def _render_login():
-    st.info("请输入老师分配给你的账号和密码。")
-
-    with st.form("student_login_form"):
-        login_account = st.text_input("账号")
-        login_password = st.text_input("密码", type="password")
-        submitted = st.form_submit_button("登录")
-
-    if not submitted:
-        return None
-
-    try:
-        student = dbs.authenticate_student(login_account, login_password)
-    except Exception as e:
-        st.error("登录功能暂时不可用，请联系老师检查学生账号字段是否已经配置。")
-        st.exception(e)
-        return None
-
-    if not student:
-        st.error("账号或密码不正确。")
-        return None
-
-    st.session_state["student_login"] = student
-    st.session_state.pop("student_test_payload", None)
-    st.session_state.pop("student_test_result", None)
-    st.session_state.pop("selected_lesson_id", None)
-    st.rerun()
+def _looks_like_html(content: str) -> bool:
+    lowered = (content or "").lower()
+    return "<html" in lowered or "<body" in lowered or "<!doctype" in lowered
 
 
-def _render_logged_in_header(student):
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        st.header(f"欢迎，{student['name']}")
-        if student.get("grade"):
-            st.caption(f"年级：{student['grade']}")
-    with col2:
-        if st.button("退出登录", key="student_logout"):
-            for key in [
-                "student_login",
-                "student_test_payload",
-                "student_test_result",
-                "selected_lesson_id",
-            ]:
-                st.session_state.pop(key, None)
-            st.rerun()
+def _render_lesson_content(detail):
+    content = detail.get("content", "") or ""
+    if not content:
+        st.info("这份学案暂时没有内容。")
+        return
+
+    html_doc = content if _looks_like_html(content) else _build_lesson_download_html(detail)
+
+    st.download_button(
+        "下载网页 HTML（可用浏览器打印 PDF）",
+        data=html_doc,
+        file_name=_build_lesson_html_filename(st.session_state.get("student_login", {}), detail),
+        mime="text/html",
+        key=f"download_lesson_html_{detail.get('id')}",
+    )
+
+    preview_tab, text_tab = st.tabs(["网页预览", "纯文本内容"])
+    with preview_tab:
+        if _looks_like_html(content):
+            components.html(content, height=650, scrolling=True)
+        else:
+            components.html(html_doc, height=650, scrolling=True)
+    with text_tab:
+        st.text_area(
+            "完整学案内容",
+            value=content,
+            height=650,
+            key=f"lesson_content_{detail.get('id')}",
+        )
+
+
+def _render_lesson_vocab_rows(rows):
+    if not rows:
+        st.info("这份学案暂时没有记录新词。")
+        return
+
+    for idx, item in enumerate(rows, start=1):
+        lemma = item.get("lemma", "")
+        pos = item.get("pos", "")
+        ipa_br = item.get("ipa_br", "")
+        ipa_am = item.get("ipa_am", "")
+        meaning = item.get("meaning", "")
+        example_en = item.get("example_en", "")
+        example_zh = item.get("example_zh", "")
+
+        st.markdown(f"### {idx}. {lemma}")
+        if pos:
+            st.write(f"词性：{pos}")
+        if ipa_br or ipa_am:
+            st.write(f"音标：英 {ipa_br or '-'} / 美 {ipa_am or '-'}")
+        if meaning:
+            st.write(f"释义：{meaning}")
+        if example_en:
+            st.write(f"例句：{example_en}")
+        if example_zh:
+            st.write(f"译文：{example_zh}")
+        st.markdown("---")
+
+
+@st.dialog("完整学案")
+def _show_lesson_detail_dialog(student_id: int, lesson_id: int):
+    detail = dbs.get_lesson_detail_for_student(student_id, lesson_id)
+    if not detail:
+        st.warning("没有找到这份学案，或这份学案不属于当前学生。")
+        return
+
+    st.write(f"学案 ID：{detail.get('id')}")
+    st.write(f"类型：{detail.get('lesson_type')}")
+    st.write(f"主题：{detail.get('topic')}")
+    st.write(f"创建时间：{detail.get('created_at')}")
+    _render_lesson_content(detail)
+
+
+@st.dialog("本次学案新词表")
+def _show_lesson_vocab_dialog(student_id: int, lesson_id: int):
+    rows = dbs.get_lesson_new_vocab_for_student(student_id, lesson_id)
+    st.write(f"学案 ID：{lesson_id}")
+    st.write(f"新词数量：{len(rows)}")
+    _render_lesson_vocab_rows(rows)
+
+
+def _render_learned_word_groups(groups):
+    if not groups:
+        st.info("你目前还没有可展示的已学单词。")
+        return
+
+    for group in groups:
+        created_at = group.get("created_at", "")
+        lesson_type = group.get("lesson_type", "") or "未标注类型"
+        topic = group.get("topic", "") or "未标注主题"
+        lesson_id = group.get("lesson_id")
+        word_count = group.get("word_count", 0)
+        title = f"{created_at}｜学案 {lesson_id}｜{lesson_type}｜{topic}（{word_count}词）"
+
+        with st.expander(title, expanded=False):
+            for idx, word in enumerate(group.get("words", []), start=1):
+                lemma = word.get("lemma", "")
+                meaning = word.get("meaning", "")
+                if meaning:
+                    st.write(f"{idx}. {lemma} - {meaning}")
+                else:
+                    st.write(f"{idx}. {lemma}")
+
+
+@st.dialog("我的已学单词")
+def _show_learned_words_dialog(student_id: int):
+    summary = dbs.get_student_learned_vocab_summary(student_id)
+    total_unique_words = summary.get("total_unique_words", 0)
+    lesson_groups = summary.get("lesson_groups", [])
+
+    st.subheader(f"已学单词总数：{total_unique_words}")
+    st.caption("按学案分类查看：哪天、哪份学案里学了哪些词。")
+    _render_learned_word_groups(lesson_groups)
 
 
 def _render_lessons(student_id: int):
@@ -185,49 +300,34 @@ def _render_lessons(student_id: int):
         st.write(f"难度：{difficulty}")
         st.write(f"主题：{topic}")
         st.write(f"创建时间：{created_at}")
-        if st.button("查看完整学案", key=f"view_lesson_{lesson_id}"):
-            st.session_state["selected_lesson_id"] = lesson_id
-
-    selected_lesson_id = st.session_state.get("selected_lesson_id")
-    if selected_lesson_id:
-        detail = dbs.get_lesson_detail_for_student(student_id, selected_lesson_id)
-        if detail:
-            html_doc = _build_lesson_download_html(detail)
-            st.download_button(
-                label="下载网页版 HTML（可用浏览器打印 PDF）",
-                data=html_doc,
-                file_name=_build_lesson_html_filename(st.session_state.get("student_login", {}), detail),
-                mime="text/html",
-                key=f"download_lesson_html_{selected_lesson_id}",
-            )
-            with st.expander("网页版预览（和教师端打印格式一致）", expanded=True):
-                preview_parts = parse_lesson_text_to_parts(detail.get("content", ""))
-                components.html(
-                    build_downloadable_lesson_html(preview_parts, title="英语学案"),
-                    height=900,
-                    scrolling=True,
-                )
-            with st.expander("查看纯文本内容", expanded=False):
-                st.text_area(
-                    "lesson_content",
-                    value=detail.get("content", ""),
-                    height=500,
-                    key=f"lesson_content_{selected_lesson_id}",
-                )
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("查看完整学案", key=f"view_lesson_{lesson_id}"):
+                _show_lesson_detail_dialog(student_id, lesson_id)
+        with col2:
+            if st.button("查看本次学案新词表", key=f"view_lesson_vocab_{lesson_id}"):
+                _show_lesson_vocab_dialog(student_id, lesson_id)
 
 
 def _render_learned_words(student_id: int):
     st.header("我的已学单词")
-    rows = dbs.get_student_learned_vocab(student_id, limit=200)
-    if not rows:
+    summary = dbs.get_student_learned_vocab_summary(student_id)
+    total_unique_words = summary.get("total_unique_words", 0)
+    lesson_groups = summary.get("lesson_groups", [])
+
+    if total_unique_words == 0:
         st.info("你目前还没有已学习单词。")
         return
 
-    for i, row in enumerate(rows, start=1):
-        lemma, meaning, status, review_count, error_count, memory_score, *_ = row
-        st.write(
-            f"{i}. {lemma} - {meaning} | 状态：{status} | 复习次数：{review_count} | 错误次数：{error_count} | 记忆评分：{memory_score}"
-        )
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        st.metric("已学单词总数", total_unique_words)
+    with col2:
+        st.caption(f"共关联 {len(lesson_groups)} 份学案。")
+        st.write("主页面先只显示摘要，详细单词列表放到弹窗里查看。")
+
+    if st.button("查看按学案分类的已学单词", key="view_learned_words_dialog"):
+        _show_learned_words_dialog(student_id)
 
 
 def _render_progress(student_id: int):
@@ -406,39 +506,39 @@ def _render_vocab_test(student_id: int):
         return
 
     st.markdown("---")
-    st.subheader("????")
-    st.caption("??????????????????????????????????????")
+    st.subheader("开始作答")
+    st.caption("请认真完成本次检测，填写完成后统一提交。")
 
     with st.form("student_vocab_test_form", clear_on_submit=False):
         user_answers = {}
 
         for idx, q in enumerate(payload["questions"], start=1):
-            st.markdown(f"### ? {idx} ?")
-            st.caption(f"?????{q['mode']}")
-            if q["mode"] == "???":
+            st.markdown(f"### 第 {idx} 题")
+            st.caption(f"本题题型：{q['mode']}")
+            if q["mode"] == "英译中":
                 user_answers[q["vocab_item_id"]] = st.radio(
-                    f"??? **{q['word']}** ??????",
+                    f"请选择 **{q['word']}** 的中文意思：",
                     q["options"],
                     key=f"student_mcq_{q['vocab_item_id']}",
                 )
             else:
                 user_answers[q["vocab_item_id"]] = st.text_input(
-                    f"????????????**{q['meaning']}**",
+                    f"请根据中文意思写出英文：**{q['meaning']}**",
                     key=f"student_text_{q['vocab_item_id']}",
                 )
 
-        submitted = st.form_submit_button("????")
+        submitted = st.form_submit_button("提交检测")
 
     if submitted:
         result = dbs.submit_student_test(
             student_id=student_id,
             payload=payload,
             user_answers=user_answers,
-            source_label=st.session_state.get("student_test_source_label", "????"),
+            source_label=st.session_state.get("student_test_source_label", "学生检测"),
         )
         st.session_state["student_test_result"] = result
         st.session_state.pop("student_test_payload", None)
-        st.success(f"?????{result['score']} / {result['total']}")
+        st.success(f"提交完成：{result['score']} / {result['total']}")
         st.rerun()
 
 
@@ -482,4 +582,3 @@ def _safe_render(section_name: str, render_func, student_id: int):
 
 if __name__ == "__main__":
     main()
-
