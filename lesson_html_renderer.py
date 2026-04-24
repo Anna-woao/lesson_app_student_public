@@ -6,7 +6,93 @@ can share the same browser-print HTML output without copying UI code.
 
 from html import escape
 import re
-from lesson_layout import parse_part3_blocks
+
+
+def _layout_clean_display_text(text: str) -> str:
+    if not text:
+        return ""
+    text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"^\s*[-*]\s+", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _layout_split_text_to_paragraphs(text: str):
+    if not text:
+        return []
+    paragraphs = re.split(r"\n\s*\n", text.strip())
+    return [p.strip() for p in paragraphs if p.strip()]
+
+
+def _layout_contains_chinese(text: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text or "")
+
+
+def _layout_english_letter_count(text: str) -> int:
+    return sum(1 for ch in text or "" if ("A" <= ch <= "Z") or ("a" <= ch <= "z"))
+
+
+def _layout_chinese_char_count(text: str) -> int:
+    return sum(1 for ch in text or "" if "\u4e00" <= ch <= "\u9fff")
+
+
+def _layout_is_part3_heading_block(raw_block: str, cleaned_block: str) -> bool:
+    raw = (raw_block or "").strip()
+    cleaned = _layout_clean_display_text(cleaned_block)
+    if not cleaned:
+        return False
+
+    if re.fullmatch(r"\*\*[^*\n]{1,80}\*\*", raw):
+        return True
+
+    if _layout_contains_chinese(cleaned):
+        return False
+
+    if len(cleaned) > 80:
+        return False
+
+    if any(punct in cleaned for punct in ".!?。！？:：；;"):
+        return False
+
+    words = cleaned.split()
+    return 1 <= len(words) <= 8
+
+
+def _layout_keep_part3_block(raw_block: str) -> bool:
+    cleaned = _layout_clean_display_text(raw_block)
+    if not cleaned or cleaned in {"*", "**", "-", "---"}:
+        return False
+
+    english_count = _layout_english_letter_count(cleaned)
+    chinese_count = _layout_chinese_char_count(cleaned)
+    if chinese_count and english_count == 0:
+        return False
+    if chinese_count > english_count:
+        return False
+    return True
+
+
+def _fallback_parse_part3_blocks(part3_text: str):
+    clean_text = _remove_part_title_if_needed(part3_text, "Part 3 Reading Passage")
+    raw_blocks = _layout_split_text_to_paragraphs(clean_text)
+    if not raw_blocks:
+        raw_blocks = [line for line in (clean_text or "").splitlines() if line.strip()]
+
+    blocks = []
+    for raw_block in raw_blocks:
+        if not _layout_keep_part3_block(raw_block):
+            continue
+        cleaned = _layout_clean_display_text(raw_block)
+        block_type = "heading" if _layout_is_part3_heading_block(raw_block, cleaned) else "paragraph"
+        blocks.append({"type": block_type, "text": cleaned})
+    return blocks
+
+
+try:
+    from lesson_layout import parse_part3_blocks  # type: ignore
+except ModuleNotFoundError:
+    parse_part3_blocks = _fallback_parse_part3_blocks
 
 def _clean_lines(text: str):
     return [line.rstrip() for line in (text or '').splitlines() if line.strip()]
