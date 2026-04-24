@@ -288,6 +288,27 @@ def get_student_learned_vocab(student_id: int, limit: int = 200):
 
 def get_student_learned_vocab_summary(student_id: int):
     supabase = get_supabase_client()
+    progress_rows = (
+        supabase.table("student_vocab_progress")
+        .select("vocab_item_id, status, review_count, error_count, memory_score, first_learned_at")
+        .eq("student_id", student_id)
+        .order("first_learned_at", desc=True)
+        .limit(1000)
+        .execute()
+    ).data or []
+
+    progress_vocab_ids = []
+    seen_progress_vocab_ids = set()
+    for row in progress_rows:
+        vocab_item_id = row.get("vocab_item_id")
+        if vocab_item_id is None or vocab_item_id in seen_progress_vocab_ids:
+            continue
+        seen_progress_vocab_ids.add(vocab_item_id)
+        progress_vocab_ids.append(vocab_item_id)
+
+    if not progress_vocab_ids:
+        return {"total_unique_words": 0, "lesson_groups": []}
+
     lesson_rows = (
         supabase.table("lessons")
         .select("id, lesson_type, topic, created_at")
@@ -297,41 +318,38 @@ def get_student_learned_vocab_summary(student_id: int):
         .execute()
     ).data or []
 
-    if not lesson_rows:
-        return {"total_unique_words": 0, "lesson_groups": []}
-
     lesson_ids = [row["id"] for row in lesson_rows if row.get("id") is not None]
-    link_rows = (
-        supabase.table("lesson_vocab_items")
-        .select("lesson_id, vocab_item_id, word_type")
-        .in_("lesson_id", lesson_ids)
-        .execute()
-    ).data or []
-
-    vocab_ids = []
-    seen_vocab_ids = set()
     lesson_vocab_ids = {}
+    linked_vocab_ids = set()
 
-    for row in link_rows:
-        lesson_id = row.get("lesson_id")
-        vocab_item_id = row.get("vocab_item_id")
-        if lesson_id is None or vocab_item_id is None:
-            continue
-        lesson_vocab_ids.setdefault(lesson_id, [])
-        if vocab_item_id in lesson_vocab_ids[lesson_id]:
-            continue
-        lesson_vocab_ids[lesson_id].append(vocab_item_id)
-        if vocab_item_id in seen_vocab_ids:
-            continue
-        seen_vocab_ids.add(vocab_item_id)
-        vocab_ids.append(vocab_item_id)
+    if lesson_ids:
+        link_rows = (
+            supabase.table("lesson_vocab_items")
+            .select("lesson_id, vocab_item_id, word_type")
+            .in_("lesson_id", lesson_ids)
+            .execute()
+        ).data or []
+
+        progress_vocab_id_set = set(progress_vocab_ids)
+        for row in link_rows:
+            lesson_id = row.get("lesson_id")
+            vocab_item_id = row.get("vocab_item_id")
+            if lesson_id is None or vocab_item_id is None:
+                continue
+            if vocab_item_id not in progress_vocab_id_set:
+                continue
+            lesson_vocab_ids.setdefault(lesson_id, [])
+            if vocab_item_id in lesson_vocab_ids[lesson_id]:
+                continue
+            lesson_vocab_ids[lesson_id].append(vocab_item_id)
+            linked_vocab_ids.add(vocab_item_id)
 
     vocab_map = {}
-    if vocab_ids:
+    if progress_vocab_ids:
         vocab_rows = (
             supabase.table("vocab_items")
             .select("id, lemma, default_meaning")
-            .in_("id", vocab_ids)
+            .in_("id", progress_vocab_ids)
             .execute()
         ).data or []
         vocab_map = {
@@ -364,8 +382,27 @@ def get_student_learned_vocab_summary(student_id: int):
             "words": vocab_list,
         })
 
+    ungrouped_words = []
+    for vocab_item_id in progress_vocab_ids:
+        if vocab_item_id in linked_vocab_ids:
+            continue
+        vocab = vocab_map.get(vocab_item_id)
+        if not vocab or not vocab.get("lemma"):
+            continue
+        ungrouped_words.append(vocab)
+
+    if ungrouped_words:
+        lesson_groups.append({
+            "lesson_id": None,
+            "lesson_type": "未归档到学案",
+            "topic": "这些词已经记入学习进度，但暂时没有关联到具体学案",
+            "created_at": "",
+            "word_count": len(ungrouped_words),
+            "words": ungrouped_words,
+        })
+
     return {
-        "total_unique_words": len(seen_vocab_ids),
+        "total_unique_words": len(progress_vocab_ids),
         "lesson_groups": lesson_groups,
     }
 
