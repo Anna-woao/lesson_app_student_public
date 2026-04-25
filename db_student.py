@@ -1061,23 +1061,31 @@ def _fetch_vocab_detail_map(vocab_ids: List[int]) -> Dict[int, dict]:
     supabase = get_supabase_client()
     if not vocab_ids:
         return {}
-    try:
-        rows = (
-            supabase.table("vocab_items")
-            .select("id, lemma, normalized_lemma, default_meaning")
-            .in_("id", vocab_ids)
-            .execute()
-        ).data or []
-    except Exception as exc:
-        error_text = str(exc)
-        if "normalized_lemma" not in error_text and "PGRST204" not in error_text:
-            raise
-        rows = (
-            supabase.table("vocab_items")
-            .select("id, lemma, default_meaning")
-            .in_("id", vocab_ids)
-            .execute()
-        ).data or []
+
+    rows = []
+    deduped_ids = list(dict.fromkeys(vocab_ids))
+    batch_size = 500
+    for start in range(0, len(deduped_ids), batch_size):
+        batch_ids = deduped_ids[start:start + batch_size]
+        try:
+            batch_rows = (
+                supabase.table("vocab_items")
+                .select("id, lemma, normalized_lemma, default_meaning")
+                .in_("id", batch_ids)
+                .execute()
+            ).data or []
+        except Exception as exc:
+            error_text = str(exc)
+            if "normalized_lemma" not in error_text and "PGRST204" not in error_text:
+                raise
+            batch_rows = (
+                supabase.table("vocab_items")
+                .select("id, lemma, default_meaning")
+                .in_("id", batch_ids)
+                .execute()
+            ).data or []
+        rows.extend(batch_rows)
+
     for row in rows:
         row["normalized_lemma"] = _normalize_lemma(row.get("normalized_lemma") or row.get("lemma") or "")
     return {r["id"]: r for r in rows}
