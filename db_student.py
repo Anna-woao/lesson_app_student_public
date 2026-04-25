@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import hashlib
 import hmac
 import random
@@ -853,6 +854,167 @@ def _merge_progress_status(current_status: Optional[str], new_status: Optional[s
     current = current_status or "learning"
     incoming = new_status or "learning"
     return incoming if order.get(incoming, 0) >= order.get(current, 0) else current
+
+
+def _calculate_next_review_days(memory_score: float, review_count: int) -> int:
+    if memory_score < 2.5:
+        intervals = [1, 2, 4, 7, 14]
+    elif memory_score > 4.0:
+        intervals = [1, 4, 10, 20, 30]
+    else:
+        intervals = [1, 3, 7, 14, 30]
+
+    if review_count >= len(intervals):
+        return 999
+    return intervals[review_count]
+
+
+def _get_student_progress_rows_map(student_id: int) -> Dict[int, dict]:
+    supabase = get_admin_supabase_client() or get_supabase_client()
+    rows = (
+        supabase.table("student_vocab_progress")
+        .select(
+            "id, vocab_item_id, first_source_book_id, first_source_unit_id, status, "
+            "review_count, error_count, memory_score, first_learned_at, last_review_time, next_review_time"
+        )
+        .eq("student_id", student_id)
+        .execute()
+    ).data or []
+    return {
+        row["vocab_item_id"]: row
+        for row in rows
+        if row.get("vocab_item_id") is not None
+    }
+
+
+def _upsert_student_vocab_progress(
+    student_id: int,
+    vocab_item_id: int,
+    source_book_id: Optional[int],
+    source_unit_id: Optional[int],
+    status: str,
+    review_count: int,
+    error_count: int,
+    memory_score: float,
+    next_review_time: Optional[str],
+):
+    supabase = get_admin_supabase_client() or get_supabase_client()
+    existing_rows = (
+        supabase.table("student_vocab_progress")
+        .select("id, first_learned_at")
+        .eq("student_id", student_id)
+        .eq("vocab_item_id", vocab_item_id)
+        .limit(1)
+        .execute()
+    ).data or []
+
+    now_iso = datetime.utcnow().isoformat()
+    if existing_rows:
+        update_payload = {
+            "status": status,
+            "review_count": review_count,
+            "error_count": error_count,
+            "memory_score": round(memory_score, 2),
+            "last_review_time": now_iso,
+            "next_review_time": next_review_time,
+        }
+        if source_book_id:
+            update_payload["first_source_book_id"] = source_book_id
+        if source_unit_id:
+            update_payload["first_source_unit_id"] = source_unit_id
+        (
+            supabase.table("student_vocab_progress")
+            .update(update_payload)
+            .eq("id", existing_rows[0]["id"])
+            .execute()
+        )
+        return
+
+    insert_payload = {
+        "student_id": student_id,
+        "vocab_item_id": vocab_item_id,
+        "first_source_book_id": source_book_id,
+        "first_source_unit_id": source_unit_id,
+        "status": status,
+        "review_count": review_count,
+        "error_count": error_count,
+        "memory_score": round(memory_score, 2),
+        "first_learned_at": now_iso,
+        "last_review_time": now_iso,
+        "next_review_time": next_review_time,
+    }
+    supabase.table("student_vocab_progress").insert(insert_payload).execute()
+
+
+def _sync_test_results_to_progress(student_id: int, payload: dict, results: List[dict]) -> bool:
+    progress_rows_map = _get_student_progress_rows_map(student_id)
+    now = datetime.utcnow()
+
+    for item in results:
+        vocab_item_id = item.get("vocab_item_id")
+        if vocab_item_id is None:
+            continue
+
+        current_row = progress_rows_map.get(vocab_item_id) or {}
+        current_status = current_row.get("status", "learning")
+        current_review_count = int(current_row.get("review_count") or 0)
+        current_error_count = int(current_row.get("error_count") or 0)
+        current_memory_score = float(current_row.get("memory_score") or 3.0)
+
+        source_book_id = item.get("source_book_id") or payload.get("source_book_id") or current_row.get("first_source_book_id")
+        source_unit_id = item.get("source_unit_id") or payload.get("source_unit_id") or current_row.get("first_source_unit_id")
+        is_correct = bool(item.get("is_correct"))
+
+        if payload.get("source_type") == "book":
+            if is_correct:
+                status = "mastered"
+                review_count = max(current_review_count, 3)
+                error_count = current_error_count
+                memory_score = max(current_memory_score, 4.5)
+                next_review_time = None
+            else:
+                status = "learning"
+                review_count = 0
+                error_count = current_error_count + 1
+                memory_score = max(1.0, current_memory_score - 0.3)
+                next_review_time = (now + timedelta(days=1)).isoformat()
+        else:
+            if is_correct:
+                memory_score = min(5.0, current_memory_score + 0.1)
+                if payload.get("test_type") == "新词检测":
+                    status = "mastered"
+                    review_count = max(current_review_count, 3)
+                    next_review_time = None
+                else:
+                    review_count = current_review_count + 1
+                    next_days = _calculate_next_review_days(memory_score, review_count)
+                    if review_count >= 3:
+                        status = "mastered"
+                        next_review_time = None
+                    else:
+                        status = "review"
+                        next_review_time = (now + timedelta(days=next_days)).isoformat()
+                error_count = current_error_count
+            else:
+                status = "learning"
+                review_count = 0
+                error_count = current_error_count + 1
+                memory_score = max(1.0, current_memory_score - 0.5)
+                next_review_time = (now + timedelta(days=1)).isoformat()
+
+        _upsert_student_vocab_progress(
+            student_id=student_id,
+            vocab_item_id=vocab_item_id,
+            source_book_id=source_book_id,
+            source_unit_id=source_unit_id,
+            status=status,
+            review_count=review_count,
+            error_count=error_count,
+            memory_score=memory_score,
+            next_review_time=next_review_time,
+        )
+
+    return True
 
 
 def build_progress_test(student_id: int, test_type: str, test_mode: str, test_count: int):
