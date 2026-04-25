@@ -2,49 +2,43 @@
 
 from html import escape
 import re
+
 import streamlit as st
 import streamlit.components.v1 as components
+
 import db_student as dbs
 from lesson_html_renderer import build_downloadable_lesson_html, parse_lesson_text_to_parts
+from student_home_viewmodel import build_student_home_viewmodel
 
 st.set_page_config(page_title="英语辅导系统｜学生端", layout="wide")
 st.title("英语辅导系统｜学生端")
 st.write("这里是学生使用的前台页面。")
 
+SECTION_LABELS = {
+    "recent_lessons": "我的最近学案",
+    "learned_words": "我的已学单词",
+    "progress": "我的学习进度",
+    "vocab_test": "我的词汇检测",
+    "test_history": "我的检测记录",
+}
+
+
 def _render_test_feedback_blocks(results):
     """
     用更清楚的两个区块展示本次检测反馈。
-
-    展示结构：
-    1. 本次考察单词清单
-       - 只显示：序号 + 单词
-       - 不在这里堆太多判题信息，保证一眼能看清本轮考了什么
-
-    2. 错词订正区
-       - 只显示答错的词
-       - 错词本身用红色加粗突出
-       - 同时给出：你的答案 / 正确答案 / 标准词义
     """
     if not results:
         st.info("当前没有可展示的检测反馈。")
         return
 
-    # ------------------------------
-    # 区块 1：本次考察单词清单
-    # ------------------------------
     st.markdown("### 本次考察单词清单")
     for idx, item in enumerate(results, start=1):
         st.write(f"{idx}. {item.get('word', '')}")
 
     st.markdown("---")
-
-    # ------------------------------
-    # 区块 2：错词订正区
-    # ------------------------------
     st.markdown("### 错词订正")
 
     wrong_results = [item for item in results if not item.get("is_correct")]
-
     if not wrong_results:
         st.success("本轮没有错词，很棒。")
         return
@@ -54,14 +48,7 @@ def _render_test_feedback_blocks(results):
         meaning = escape(str(item.get("meaning", "") or ""))
         mode = item.get("mode", "")
         user_answer = escape(str(item.get("user_answer") or "（未作答）"))
-
-        # 根据题型决定“正确答案”展示什么
-        # 英译中：正确答案应是中文释义
-        # 中译英：正确答案应是英文单词
-        if mode == "英译中":
-            correct_answer = meaning
-        else:
-            correct_answer = word
+        correct_answer = meaning if mode == "英译中" else word
 
         st.markdown(
             f"""
@@ -95,6 +82,7 @@ def _render_test_feedback_blocks(results):
             """,
             unsafe_allow_html=True,
         )
+
 
 def _render_login():
     st.info("请输入老师分配给你的账号和密码。")
@@ -136,9 +124,192 @@ def _render_logged_in_header(student):
                 "student_login",
                 "student_test_payload",
                 "student_test_result",
+                "student_home_focus_section",
             ]:
                 st.session_state.pop(key, None)
             st.rerun()
+
+
+def _render_dashboard_styles():
+    st.markdown(
+        """
+        <style>
+        .student-home-card {
+            border: 1px solid #d9e6f2;
+            border-radius: 18px;
+            padding: 18px 20px;
+            background: linear-gradient(180deg, #ffffff 0%, #f6fbff 100%);
+            box-shadow: 0 8px 22px rgba(33, 76, 110, 0.06);
+            margin-bottom: 12px;
+        }
+        .student-home-chip {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: #e8f4ff;
+            color: #23527c;
+            font-size: 13px;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+        .student-home-kicker {
+            color: #5a7184;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+        .student-home-title {
+            font-size: 26px;
+            font-weight: 700;
+            color: #183b56;
+            margin: 0 0 8px 0;
+        }
+        .student-home-subtitle {
+            color: #486581;
+            font-size: 15px;
+            margin-bottom: 0;
+        }
+        .student-home-task-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #102a43;
+            margin: 0 0 8px 0;
+        }
+        .student-home-task-desc {
+            color: #486581;
+            font-size: 14px;
+            margin-bottom: 0;
+        }
+        .student-home-history-tip {
+            color: #52606d;
+            font-size: 14px;
+            margin-top: 2px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_welcome_section(home_data: dict):
+    unlocked_modules = home_data.get("unlocked_modules", [])
+    module_html = "".join(
+        f'<span class="student-home-chip">{module}</span>' for module in unlocked_modules
+    ) or '<span class="student-home-chip">新的学习旅程</span>'
+
+    st.markdown(
+        f"""
+        <div class="student-home-card">
+            <div class="student-home-kicker">欢迎回来</div>
+            <div class="student-home-title">{home_data["student_name"]}，今天继续向前走一点点</div>
+            <p class="student-home-subtitle">
+                当前称号：<strong>{home_data["title_label"]}</strong>
+                &nbsp;&nbsp;|&nbsp;&nbsp;
+                当前阶段：<strong>{home_data["stage_label"]}</strong>
+            </p>
+            <p class="student-home-subtitle">{home_data["growth_feedback"]}</p>
+            <div style="margin-top: 10px;">{module_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_primary_task_section(home_data: dict):
+    primary_target = home_data["current_task_cards"][0]["target_section"]
+    button_key = f"student_home_start_today_{home_data['student_name']}"
+
+    st.markdown(
+        f"""
+        <div class="student-home-card">
+            <div class="student-home-kicker">今日成长之旅</div>
+            <div class="student-home-task-title">{home_data["primary_task"]}</div>
+            <p class="student-home-subtitle">预计用时：{home_data["primary_task_eta"]}</p>
+            <p class="student-home-task-desc">{home_data["current_task_cards"][0]["description"]}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("开始今天的成长之旅", key=button_key, type="primary", use_container_width=True):
+        st.session_state["student_home_focus_section"] = primary_target
+
+
+def _render_light_status_section(home_data: dict):
+    unlocked_modules = home_data.get("unlocked_modules", [])
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("本周完成度", f"{home_data['weekly_completion_ratio']:.0%}")
+        st.progress(home_data["weekly_completion_ratio"])
+    with col2:
+        st.metric("连续学习天数", f"{home_data['streak_days']} 天")
+        st.caption("按近 30 天的学案创建与检测完成日期计算")
+    with col3:
+        st.metric("已解锁模块", len(unlocked_modules))
+        st.caption(" / ".join(unlocked_modules) if unlocked_modules else "完成首个任务后会逐步解锁")
+
+
+def _render_task_pool_section(home_data: dict):
+    st.markdown("## 学习任务池")
+    current_cards = home_data.get("current_task_cards", [])
+    history_cards = home_data.get("history_task_cards", [])
+
+    st.markdown("### 当前待完成任务池")
+    if not current_cards:
+        st.info("今天先从一小步开始，我们会在这里给你准备接下来的任务。")
+    else:
+        columns = st.columns(len(current_cards))
+        for index, (column, card) in enumerate(zip(columns, current_cards)):
+            badge = "今日主任务" if card.get("is_primary") else "接下来可以做"
+            with column:
+                st.markdown(
+                    f"""
+                    <div class="student-home-card">
+                        <div class="student-home-kicker">{badge}</div>
+                        <div class="student-home-task-title">{card["title"]}</div>
+                        <p class="student-home-subtitle">预计用时：{card["eta"]}</p>
+                        <p class="student-home-task-desc">{card["description"]}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button("查看这一项", key=f"student_current_task_{index}", use_container_width=True):
+                    st.session_state["student_home_focus_section"] = card["target_section"]
+
+    st.markdown("### 历史内容池")
+    if not history_cards:
+        st.info("完成第一轮学习后，这里会帮你收集可回看的旧内容。")
+        return
+
+    columns = st.columns(len(history_cards))
+    for index, (column, card) in enumerate(zip(columns, history_cards)):
+        with column:
+            st.markdown(
+                f"""
+                <div class="student-home-card">
+                    <div class="student-home-kicker">已完成内容</div>
+                    <div class="student-home-task-title">{card["title"]}</div>
+                    <p class="student-home-subtitle">{card["eta"]}</p>
+                    <p class="student-home-task-desc">{card["description"]}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button("前往回看", key=f"student_history_task_{index}", use_container_width=True):
+                st.session_state["student_home_focus_section"] = card["target_section"]
+
+
+def _render_focus_hint():
+    target_section = st.session_state.get("student_home_focus_section")
+    if not target_section:
+        return
+
+    target_label = SECTION_LABELS.get(target_section, "对应学习区域")
+    st.info(f"今天先从下方的“{target_label}”开始吧，我已经帮你把重点放在那里了。")
+
+
+def _render_section_focus_badge(section_key: str):
+    target_section = st.session_state.get("student_home_focus_section")
+    if target_section == section_key:
+        st.success(f"今天建议先完成这一部分：{SECTION_LABELS.get(section_key, '当前区域')}")
 
 
 def _sanitize_filename_part(text: str) -> str:
@@ -289,9 +460,10 @@ def _show_learned_words_dialog(student_id: int):
 
 def _render_lessons(student_id: int):
     st.header("我的最近学案")
+    _render_section_focus_badge("recent_lessons")
     lessons = dbs.get_student_recent_lessons(student_id, limit=10)
     if not lessons:
-        st.info("你目前还没有学案记录。")
+        st.info("这里会慢慢收集你的学案练习。完成今天的第一步后，再回来看看。")
         return
 
     for lesson_id, lesson_type, difficulty, topic, created_at in lessons:
@@ -311,12 +483,13 @@ def _render_lessons(student_id: int):
 
 def _render_learned_words(student_id: int):
     st.header("我的已学单词")
+    _render_section_focus_badge("learned_words")
     summary = dbs.get_student_learned_vocab_summary(student_id)
     total_unique_words = summary.get("total_unique_words", 0)
     lesson_groups = summary.get("lesson_groups", [])
 
     if total_unique_words == 0:
-        st.info("你目前还没有已学习单词。")
+        st.info("这里会记录你已经接触过的词汇内容。")
         return
 
     col1, col2 = st.columns([1, 3])
@@ -332,9 +505,10 @@ def _render_learned_words(student_id: int):
 
 def _render_progress(student_id: int):
     st.header("我的学习进度")
+    _render_section_focus_badge("progress")
     progress_rows = dbs.get_student_book_progress(student_id)
     if not progress_rows:
-        st.info("你目前还没有学习进度。")
+        st.info("完成学习任务后，这里会逐步展示你的进度变化。")
         return
 
     for row in progress_rows:
@@ -355,9 +529,10 @@ def _render_progress(student_id: int):
 
 def _render_test_history(student_id: int):
     st.header("我的检测记录")
+    _render_section_focus_badge("test_history")
     rows = dbs.get_student_vocab_test_records(student_id, limit=20)
     if not rows:
-        st.info("你目前还没有词汇检测记录。")
+        st.info("完成第一次检测后，这里会留下你每一次练习的成长轨迹。")
         return
 
     for row in rows:
@@ -389,7 +564,6 @@ def _render_test_history(student_id: int):
         item_rows = dbs.get_vocab_test_record_items(test_record_id)
 
         with st.expander("查看本次检测反馈", expanded=False):
-            # 把数据库返回的元组列表，转成和即时反馈区一致的字典格式
             results = []
             for item in item_rows:
                 vocab_item_id, word, meaning, mode, user_answer, is_correct = item
@@ -407,6 +581,7 @@ def _render_test_history(student_id: int):
 
 def _render_vocab_test(student_id: int):
     st.header("我的词汇检测")
+    _render_section_focus_badge("vocab_test")
     mode_tab1, mode_tab2 = st.tabs(["学习进度检测", "词汇书抽词检测"])
 
     with mode_tab1:
@@ -433,16 +608,7 @@ def _render_vocab_test(student_id: int):
             selected_book_label = st.selectbox("选择词汇书", list(book_options.keys()), key="student_book_test_book")
             selected_book_id = book_options[selected_book_label]
 
-            # ------------------------------
-            # 单元多选区
-            # 说明：
-            # 1. 这里改成 multiselect，实现“可一次选择多个单元检测”
-            # 2. 如果一个单元都不选，默认表示“整本词汇书”
-            # 3. Streamlit 原生没有“下拉项前带 checkbox”的真正控件，
-            #    multiselect 是当前最稳、最原生的多选方案
-            # ------------------------------
             units = dbs.get_units_by_book(selected_book_id)
-
             unit_name_to_id = {}
             for unit_id, unit_name, _unit_order in units:
                 unit_name_to_id[unit_name] = unit_id
@@ -461,7 +627,6 @@ def _render_vocab_test(student_id: int):
             else:
                 st.caption("当前范围：整本词汇书")
 
-
             test_mode = st.selectbox("作答方式", ["英译中", "中译英", "混合模式"], key="student_book_test_mode")
             test_count = st.selectbox("本次检测题数", [15, 25, 35, 45, 60], index=1, key="student_book_test_count")
 
@@ -475,9 +640,7 @@ def _render_vocab_test(student_id: int):
                 )
 
                 if ok:
-                    # 开始新一轮检测前，清掉上一轮结果，避免旧结果残留
                     st.session_state.pop("student_test_result", None)
-
                     st.session_state["student_test_payload"] = payload
 
                     scope = " / ".join(selected_unit_labels) if selected_unit_labels else "整本词汇书"
@@ -498,10 +661,6 @@ def _render_vocab_test(student_id: int):
             st.subheader("本次检测结果")
             st.write(f"得分：{result['score']} / {result['total']}")
             st.write(f"正确率：{result['accuracy']:.0%}")
-
-            # ------------------------------
-            # 用新的清晰版反馈区替代旧的逐题流水账
-            # ------------------------------
             _render_test_feedback_blocks(result.get("results", []))
         return
 
@@ -550,16 +709,44 @@ def main():
 
     student_id = student["id"]
     _render_logged_in_header(student)
+    _render_dashboard_styles()
 
+    home_data = build_student_home_viewmodel(student)
+    _render_welcome_section(home_data)
+
+    top_left, top_right = st.columns([1.2, 1])
+    with top_left:
+        _render_primary_task_section(home_data)
+    with top_right:
+        st.markdown("## 轻状态")
+        _render_light_status_section(home_data)
+
+    _render_task_pool_section(home_data)
+
+    history_summary = home_data.get("history_summary", {})
+    st.markdown("## 成长记录回看")
+    st.markdown(
+        f"""
+        <div class="student-home-history-tip">
+            已收集 {history_summary.get("recent_lessons_count", 0)} 份学案、
+            {history_summary.get("learned_vocab_count", 0)} 个已学单词、
+            {history_summary.get("test_record_count", 0)} 条检测记录。
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    _render_focus_hint()
+
+    _render_vocab_test(student_id)
+    st.markdown("---")
     _render_lessons(student_id)
     st.markdown("---")
     _render_learned_words(student_id)
     st.markdown("---")
     _render_progress(student_id)
     st.markdown("---")
-    _render_vocab_test(student_id)
-    st.markdown("---")
     _render_test_history(student_id)
+
 
 def _show_debug_info():
     with st.expander("调试信息", expanded=True):
