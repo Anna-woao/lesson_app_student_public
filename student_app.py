@@ -416,7 +416,6 @@ def _render_primary_task_section(home_data: dict):
     )
     if st.button("开始今天的成长之旅", key=button_key, type="primary", use_container_width=True):
         _set_focus_section("task_pool")
-        st.rerun()
 
 
 def _render_light_status_section(home_data: dict):
@@ -461,8 +460,7 @@ def _render_task_pool_section(home_data: dict):
                 )
                 button_label = "开始这一项" if card.get("action_type") != "focus_section" else "查看这一项"
                 if st.button(button_label, key=f"student_current_task_{index}", use_container_width=True):
-                    if _run_task_action(st.session_state["student_login"]["id"], card):
-                        st.rerun()
+                    _run_task_action(st.session_state["student_login"]["id"], card)
 
     st.markdown("### 历史内容池")
     if not history_cards:
@@ -484,8 +482,7 @@ def _render_task_pool_section(home_data: dict):
                 unsafe_allow_html=True,
             )
             if st.button("前往回看", key=f"student_history_task_{index}", use_container_width=True):
-                if _run_task_action(st.session_state["student_login"]["id"], card):
-                    st.rerun()
+                _run_task_action(st.session_state["student_login"]["id"], card)
 
 
 def _render_focus_hint():
