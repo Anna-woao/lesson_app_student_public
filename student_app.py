@@ -189,6 +189,28 @@ def _render_dashboard_styles():
             font-size: 14px;
             margin-top: 2px;
         }
+        .student-diagnosis-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-top: 12px;
+        }
+        .student-diagnosis-mini-card {
+            border: 1px solid #d9e6f2;
+            border-radius: 16px;
+            padding: 14px 16px;
+            background: #ffffff;
+        }
+        .student-diagnosis-mini-title {
+            color: #486581;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+        .student-diagnosis-mini-body {
+            color: #102a43;
+            font-size: 15px;
+            line-height: 1.5;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -213,6 +235,42 @@ def _render_welcome_section(home_data: dict):
             </p>
             <p class="student-home-subtitle">{home_data["growth_feedback"]}</p>
             <div style="margin-top: 10px;">{module_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_diagnosis_summary_card(home_data: dict):
+    diagnosis = home_data.get("diagnosis_summary", {})
+    if not diagnosis.get("has_diagnosis"):
+        return
+
+    st.markdown("## 当前诊断结果")
+    st.markdown(
+        f"""
+        <div class="student-home-card">
+            <div class="student-home-kicker">你的当前起点</div>
+            <div class="student-home-task-title">{diagnosis.get("title_label", "")}｜{diagnosis.get("stage_label", "")}</div>
+            <p class="student-home-subtitle">{diagnosis.get("growth_focus", "")}</p>
+            <div class="student-diagnosis-grid">
+                <div class="student-diagnosis-mini-card">
+                    <div class="student-diagnosis-mini-title">词汇量区间</div>
+                    <div class="student-diagnosis-mini-body">{diagnosis.get("vocab_band", "待生成")}</div>
+                </div>
+                <div class="student-diagnosis-mini-card">
+                    <div class="student-diagnosis-mini-title">阅读画像</div>
+                    <div class="student-diagnosis-mini-body">{diagnosis.get("reading_profile", "待生成")}</div>
+                </div>
+                <div class="student-diagnosis-mini-card">
+                    <div class="student-diagnosis-mini-title">语法重点</div>
+                    <div class="student-diagnosis-mini-body">{diagnosis.get("grammar_gap", "待生成")}</div>
+                </div>
+                <div class="student-diagnosis-mini-card">
+                    <div class="student-diagnosis-mini-title">建议轨道</div>
+                    <div class="student-diagnosis-mini-body">{diagnosis.get("suggested_track", "待生成")}</div>
+                </div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -327,13 +385,42 @@ def _clear_diagnosis_session_state():
 
 
 def _render_diagnosis_result(result: dict):
-    st.success("首次诊断已完成，下面是你的当前起点。")
-    st.write(result.get("vocab_band", ""))
-    st.write(result.get("reading_profile", ""))
-    st.write(result.get("grammar_gap", ""))
-    st.write(result.get("writing_profile", ""))
-    st.write(result.get("suggested_track", ""))
-    st.caption(result.get("growth_focus", ""))
+    dimensions = result.get("dimensions", {})
+    card_items = [
+        ("词汇量区间", result.get("vocab_band", "")),
+        ("阅读能力画像", result.get("reading_profile", "")),
+        ("语法基础缺口", result.get("grammar_gap", "")),
+        ("写作基础判断", result.get("writing_profile", "")),
+        ("建议学习轨道", result.get("suggested_track", "")),
+        ("当前成长重点", result.get("growth_focus", "")),
+    ]
+    cards_html = "".join(
+        f"""
+        <div class="student-diagnosis-mini-card">
+            <div class="student-diagnosis-mini-title">{title}</div>
+            <div class="student-diagnosis-mini-body">{body or '待生成'}</div>
+        </div>
+        """
+        for title, body in card_items
+    )
+    st.markdown(
+        f"""
+        <div class="student-home-card">
+            <div class="student-home-kicker">首次诊断结果</div>
+            <div class="student-home-task-title">{result.get("title_label", "")}｜{result.get("stage_label", "")}</div>
+            <p class="student-home-subtitle">{result.get("summary_text", "")}</p>
+            <div class="student-diagnosis-grid">
+                {cards_html}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if dimensions:
+        with st.expander("查看六维画像说明", expanded=False):
+            for title, body in dimensions.items():
+                st.markdown(f"### {title}")
+                st.write(body)
 
 
 def _render_initial_diagnosis(student_id: int):
@@ -824,6 +911,7 @@ def main():
 
     home_data = build_student_home_viewmodel(student)
     _render_welcome_section(home_data)
+    _render_diagnosis_summary_card(home_data)
 
     top_left, top_right = st.columns([1.2, 1])
     with top_left:
