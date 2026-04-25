@@ -8,7 +8,7 @@ import random
 import secrets
 from typing import Dict, List, Optional, Tuple
 
-from supabase_client import get_supabase_client
+from supabase_client import get_admin_supabase_client, get_supabase_client
 
 
 PASSWORD_HASH_ITERATIONS = 200_000
@@ -614,7 +614,7 @@ def get_student_activity_dates(student_id: int, days: int = 30):
 
 
 def get_latest_diagnosis_record(student_id: int):
-    supabase = get_supabase_client()
+    supabase = get_admin_supabase_client() or get_supabase_client()
     try:
         resp = (
             supabase.table("student_diagnostic_records")
@@ -631,7 +631,7 @@ def get_latest_diagnosis_record(student_id: int):
 
 
 def get_latest_profile_snapshot(student_id: int):
-    supabase = get_supabase_client()
+    supabase = get_admin_supabase_client() or get_supabase_client()
     try:
         resp = (
             supabase.table("student_profile_snapshots")
@@ -648,7 +648,7 @@ def get_latest_profile_snapshot(student_id: int):
 
 
 def save_initial_diagnosis_result(student_id: int, diagnosis_result: dict):
-    supabase = get_supabase_client()
+    supabase = get_admin_supabase_client() or get_supabase_client()
 
     record_payload = {
         "student_id": student_id,
@@ -674,6 +674,11 @@ def save_initial_diagnosis_result(student_id: int, diagnosis_result: dict):
             raise DiagnosisStorageNotReadyError(
                 "Supabase 尚未创建首次诊断结果表，请先执行 "
                 "`supabase_initial_diagnosis_migration.sql`。"
+            ) from exc
+        if "row-level security" in message or "42501" in message:
+            raise DiagnosisStorageNotReadyError(
+                "诊断结果表仍被 RLS 拦截。请在部署环境里配置 "
+                "`SUPABASE_SERVICE_ROLE_KEY`，或确认这两张诊断表已关闭 RLS。"
             ) from exc
         raise
     record_rows = record_resp.data or []
@@ -710,6 +715,11 @@ def save_initial_diagnosis_result(student_id: int, diagnosis_result: dict):
             raise DiagnosisStorageNotReadyError(
                 "Supabase 尚未创建首次诊断结果表，请先执行 "
                 "`supabase_initial_diagnosis_migration.sql`。"
+            ) from exc
+        if "row-level security" in message or "42501" in message:
+            raise DiagnosisStorageNotReadyError(
+                "诊断结果表仍被 RLS 拦截。请在部署环境里配置 "
+                "`SUPABASE_SERVICE_ROLE_KEY`，或确认这两张诊断表已关闭 RLS。"
             ) from exc
         raise
     snapshot_rows = snapshot_resp.data or []
