@@ -275,6 +275,108 @@ def _render_test_feedback_blocks(results):
         )
 
 
+def _render_vocab_test_intro(payload_exists: bool, result_exists: bool):
+    if payload_exists:
+        st.info("当前有一轮正在进行中的词汇检测。先完成这一轮，再开始新的检测。")
+        return
+    if result_exists:
+        st.info("这里保留你刚完成的检测结果，也可以直接开始下一轮。")
+        return
+    st.info("词汇检测页只负责一件事：开始检测并完成答题。先选择一种检测方式，然后进入本轮任务。")
+
+
+def _render_vocab_test_result_panel(result: dict):
+    st.markdown("## 本次检测结果")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("得分", f"{result['score']} / {result['total']}")
+    with col2:
+        st.metric("正确率", f"{result['accuracy']:.0%}")
+    with col3:
+        if st.button("开始新一轮检测", key="restart_vocab_test_from_result", use_container_width=True):
+            st.session_state.pop("student_test_result", None)
+            st.rerun()
+    _render_test_feedback_blocks(result.get("results", []))
+
+
+def _render_progress_test_launcher(student_id: int):
+    st.markdown("### 学习进度检测")
+    st.caption("适合处理当前学习中或待复习的词汇，直接进入一轮轻量检测。")
+
+    test_type = st.selectbox("检测类型", ["新词检测", "复习检测"], key="student_progress_test_type")
+    test_mode = st.selectbox("作答方式", ["英译中", "中译英", "混合模式"], key="student_progress_test_mode")
+    test_count = st.selectbox("本次检测题数", [15, 25, 35, 45, 60], index=1, key="student_progress_test_count")
+
+    if st.button("开始学习进度检测", key="start_student_progress_test", use_container_width=True):
+        ok, payload = dbs.build_progress_test(student_id, test_type, test_mode, test_count)
+        if ok:
+            st.session_state["student_test_payload"] = payload
+            st.session_state["student_test_source_label"] = f"学习进度检测：{test_type}"
+            st.success("已进入学习进度检测。")
+            st.rerun()
+        else:
+            st.warning(payload)
+
+
+def _render_book_test_launcher(student_id: int):
+    st.markdown("### 词汇书抽词检测")
+    st.caption("适合从指定词汇书或单元直接开始，快速完成今天的词汇任务。")
+
+    books = dbs.get_all_word_books()
+    if not books:
+        st.info("当前还没有词汇书。")
+        return
+
+    book_options = {label: book_id for book_id, label in books}
+    selected_book_label = st.selectbox("选择词汇书", list(book_options.keys()), key="student_book_test_book")
+    selected_book_id = book_options[selected_book_label]
+
+    units = dbs.get_units_by_book(selected_book_id)
+    unit_name_to_id = {}
+    for unit_id, unit_name, _unit_order in units:
+        unit_name_to_id[unit_name] = unit_id
+
+    selected_unit_labels = st.multiselect(
+        "选择单元（可多选；如果一个都不选，默认检测整本词汇书）",
+        options=list(unit_name_to_id.keys()),
+        default=[],
+        key="student_book_test_units",
+    )
+
+    selected_unit_ids = [unit_name_to_id[label] for label in selected_unit_labels]
+
+    if selected_unit_labels:
+        st.caption("当前已选择单元：" + " / ".join(selected_unit_labels))
+    else:
+        st.caption("当前范围：整本词汇书")
+
+    test_mode = st.selectbox("作答方式", ["英译中", "中译英", "混合模式"], key="student_book_test_mode")
+    test_count = st.selectbox("本次检测题数", [15, 25, 35, 45, 60], index=1, key="student_book_test_count")
+
+    if st.button("开始词汇书检测", key="start_student_book_test", use_container_width=True):
+        ok, payload = dbs.build_book_test(
+            student_id,
+            selected_book_id,
+            selected_unit_ids,
+            test_mode,
+            test_count,
+        )
+
+        if ok:
+            st.session_state.pop("student_test_result", None)
+            st.session_state["student_test_payload"] = payload
+
+            scope = " / ".join(selected_unit_labels) if selected_unit_labels else "整本词汇书"
+            st.session_state["student_test_source_label"] = (
+                f"词汇书抽词检测：{selected_book_label} / {scope}"
+            )
+
+            st.success("已进入词汇书检测。")
+            st.rerun()
+        else:
+            st.warning(payload)
+
+
 def _render_login():
     st.info("请输入老师分配给你的账号和密码。")
 
@@ -1198,91 +1300,25 @@ def _render_vocab_test(student_id: int):
     _render_section_anchor("vocab_test")
     st.header("我的词汇检测")
     _render_section_focus_badge("vocab_test")
-    mode_tab1, mode_tab2 = st.tabs(["学习进度检测", "词汇书抽词检测"])
-
-    with mode_tab1:
-        test_type = st.selectbox("检测类型", ["新词检测", "复习检测"], key="student_progress_test_type")
-        test_mode = st.selectbox("作答方式", ["英译中", "中译英", "混合模式"], key="student_progress_test_mode")
-        test_count = st.selectbox("本次检测题数", [15, 25, 35, 45, 60], index=1, key="student_progress_test_count")
-
-        if st.button("开始学习进度检测", key="start_student_progress_test"):
-            ok, payload = dbs.build_progress_test(student_id, test_type, test_mode, test_count)
-            if ok:
-                st.session_state["student_test_payload"] = payload
-                st.session_state["student_test_source_label"] = f"学习进度检测：{test_type}"
-                st.success("已开始学习进度检测。")
-                st.rerun()
-            else:
-                st.warning(payload)
-
-    with mode_tab2:
-        books = dbs.get_all_word_books()
-        if not books:
-            st.info("当前还没有词汇书。")
-        else:
-            book_options = {label: book_id for book_id, label in books}
-            selected_book_label = st.selectbox("选择词汇书", list(book_options.keys()), key="student_book_test_book")
-            selected_book_id = book_options[selected_book_label]
-
-            units = dbs.get_units_by_book(selected_book_id)
-            unit_name_to_id = {}
-            for unit_id, unit_name, _unit_order in units:
-                unit_name_to_id[unit_name] = unit_id
-
-            selected_unit_labels = st.multiselect(
-                "选择单元（可多选；如果一个都不选，默认检测整本词汇书）",
-                options=list(unit_name_to_id.keys()),
-                default=[],
-                key="student_book_test_units",
-            )
-
-            selected_unit_ids = [unit_name_to_id[label] for label in selected_unit_labels]
-
-            if selected_unit_labels:
-                st.caption("当前已选择单元：" + " / ".join(selected_unit_labels))
-            else:
-                st.caption("当前范围：整本词汇书")
-
-            test_mode = st.selectbox("作答方式", ["英译中", "中译英", "混合模式"], key="student_book_test_mode")
-            test_count = st.selectbox("本次检测题数", [15, 25, 35, 45, 60], index=1, key="student_book_test_count")
-
-            if st.button("开始词汇书抽词检测", key="start_student_book_test"):
-                ok, payload = dbs.build_book_test(
-                    student_id,
-                    selected_book_id,
-                    selected_unit_ids,
-                    test_mode,
-                    test_count,
-                )
-
-                if ok:
-                    st.session_state.pop("student_test_result", None)
-                    st.session_state["student_test_payload"] = payload
-
-                    scope = " / ".join(selected_unit_labels) if selected_unit_labels else "整本词汇书"
-                    st.session_state["student_test_source_label"] = (
-                        f"词汇书抽词检测：{selected_book_label} / {scope}"
-                    )
-
-                    st.success("已开始词汇书抽词检测。")
-                    st.rerun()
-                else:
-                    st.warning(payload)
-
     payload = st.session_state.get("student_test_payload")
+    result = st.session_state.get("student_test_result")
+    _render_vocab_test_intro(payload_exists=bool(payload), result_exists=bool(result))
+
     if not payload:
-        result = st.session_state.get("student_test_result")
+        launcher_left, launcher_right = st.columns(2)
+        with launcher_left:
+            _render_progress_test_launcher(student_id)
+        with launcher_right:
+            _render_book_test_launcher(student_id)
+
         if result:
             st.markdown("---")
-            st.subheader("本次检测结果")
-            st.write(f"得分：{result['score']} / {result['total']}")
-            st.write(f"正确率：{result['accuracy']:.0%}")
-            _render_test_feedback_blocks(result.get("results", []))
+            _render_vocab_test_result_panel(result)
         return
 
     st.markdown("---")
-    st.subheader("开始作答")
-    st.caption("请认真完成本次检测，填写完成后统一提交。")
+    st.subheader("正在答题")
+    st.caption("请先完成这一轮检测。提交后，本页只保留结果和重新开始入口。")
 
     with st.form("student_vocab_test_form", clear_on_submit=False):
         user_answers = {}
