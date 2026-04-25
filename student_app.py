@@ -296,6 +296,8 @@ def _render_vocab_test_intro(payload_exists: bool, result_exists: bool):
 
 
 def _render_vocab_test_result_panel(result: dict):
+    if not result.get("persistence_ok", True):
+        st.warning("本次检测分数已算出，但历史记录暂未成功保存。请稍后重试，或联系老师检查数据库配置。")
     st.markdown("## 本次检测结果")
     col1, col2, col3 = st.columns(3)
     with col1:
