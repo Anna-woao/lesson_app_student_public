@@ -64,6 +64,13 @@ def _get_write_supabase_client():
     return get_admin_supabase_client() or get_supabase_client()
 
 
+def _get_admin_supabase_client_required():
+    client = get_admin_supabase_client()
+    if client is None:
+        raise RuntimeError("缺少 SUPABASE_SERVICE_ROLE_KEY，无法执行管理员写操作。")
+    return client
+
+
 def _normalize_lemma(text: str) -> str:
     value = (text or "").strip().lower()
     value = value.replace("’", "'").replace("‘", "'")
@@ -151,7 +158,7 @@ def authenticate_student(login_account: str, login_password: str):
 
 
 def get_student_login_accounts():
-    supabase = get_supabase_client()
+    supabase = _get_admin_supabase_client_required()
     resp = (
         supabase.table("students")
         .select("id, name, grade, login_account, login_password, login_password_hash")
@@ -203,6 +210,23 @@ def update_student_login_account(student_id: int, login_account: str, login_pass
 
 
 def parse_structured_vocab_excel(file_bytes: bytes, source_name: str = ""):
+    import vocab_import_service as vis
+
+    return vis.parse_generic_vocab_excel(
+        file_bytes,
+        {
+            "A": "ignore",
+            "B": "book_name",
+            "C": "volume_name",
+            "D": "unit",
+            "E": "term",
+            "F": "meaning",
+            "G": "ipa",
+            "H": "note",
+        },
+        source_name=source_name,
+    )
+
     workbook = load_workbook(BytesIO(file_bytes), data_only=True)
     worksheet = workbook[workbook.sheetnames[0]]
 
@@ -271,6 +295,11 @@ def parse_structured_vocab_excel(file_bytes: bytes, source_name: str = ""):
 
 
 def import_structured_vocab_excel(file_bytes: bytes, source_name: str = ""):
+    import vocab_import_service as vis
+
+    parsed = parse_structured_vocab_excel(file_bytes, source_name=source_name)
+    return vis.import_parsed_vocab_rows(parsed, source_name=source_name)
+
     parsed = parse_structured_vocab_excel(file_bytes, source_name=source_name)
     rows = parsed["rows"]
     if not rows:
@@ -593,14 +622,12 @@ def get_student_learned_vocab(student_id: int, limit: int = 200):
 
 def get_student_learned_vocab_summary(student_id: int):
     supabase = get_supabase_client()
-    progress_rows = (
+    progress_rows = _fetch_all_rows(
         supabase.table("student_vocab_progress")
         .select("vocab_item_id, status, review_count, error_count, memory_score, first_learned_at")
         .eq("student_id", student_id)
         .order("first_learned_at", desc=True)
-        .limit(1000)
-        .execute()
-    ).data or []
+    )
 
     progress_vocab_ids = []
     seen_progress_vocab_ids = set()
@@ -1058,7 +1085,7 @@ def _fetch_vocab_map(vocab_ids: List[int]) -> Dict[int, Tuple[str, str]]:
 
 
 def _fetch_vocab_detail_map(vocab_ids: List[int]) -> Dict[int, dict]:
-    supabase = get_supabase_client()
+    supabase = _get_admin_supabase_client_required()
     if not vocab_ids:
         return {}
 
@@ -1276,6 +1303,7 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
     accuracy = (score / total) if total else 0.0
 
     test_record_id = None
+    persistence_error = None
     try:
         supabase = get_supabase_client()
         record_resp = (
@@ -1314,8 +1342,8 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
                 })
             if item_payloads:
                 supabase.table("vocab_test_record_items").insert(item_payloads).execute()
-    except Exception:
-        pass
+    except Exception as exc:
+        persistence_error = str(exc)
 
     return {
         "score": score,
@@ -1323,4 +1351,6 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
         "accuracy": accuracy,
         "results": results,
         "test_record_id": test_record_id,
+        "persistence_ok": persistence_error is None,
+        "persistence_error": persistence_error,
     }
