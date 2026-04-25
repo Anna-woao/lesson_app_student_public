@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from io import BytesIO
 import hashlib
 import hmac
 import random
 import re
 import secrets
 from typing import Dict, List, Optional, Tuple
-
-from openpyxl import load_workbook
 
 from supabase_client import get_admin_supabase_client, get_supabase_client
 
@@ -60,10 +57,6 @@ def _fetch_all_rows(query_builder, page_size: int = 1000):
     return all_rows
 
 
-def _get_write_supabase_client():
-    return get_admin_supabase_client() or get_supabase_client()
-
-
 def _get_admin_supabase_client_required():
     client = get_admin_supabase_client()
     if client is None:
@@ -76,22 +69,6 @@ def _normalize_lemma(text: str) -> str:
     value = value.replace("’", "'").replace("‘", "'")
     value = re.sub(r"\s+", " ", value)
     return value
-
-
-def _chunked(items, size: int):
-    for start in range(0, len(items), size):
-        yield items[start:start + size]
-
-
-def _extract_pos_and_meaning(raw_meaning: str):
-    text = (raw_meaning or "").strip()
-    if not text:
-        return "", ""
-
-    match = re.match(r"^([A-Za-z][A-Za-z\s./-]*\.)\s*(.+)$", text)
-    if match:
-        return match.group(1).strip(), match.group(2).strip()
-    return "", text
 
 
 def get_all_students():
