@@ -1168,27 +1168,49 @@ def _render_lessons(student_id: int):
     _render_section_anchor("recent_lessons")
     st.header("我的最近学案")
     _render_section_focus_badge("recent_lessons")
-    auto_open_lesson_id = st.session_state.pop("student_auto_open_lesson_id", None)
-    if auto_open_lesson_id:
-        _show_lesson_detail_dialog(student_id, auto_open_lesson_id)
-
     lessons = dbs.get_student_recent_lessons(student_id, limit=10)
     if not lessons:
         st.info("这里会慢慢收集你的学案练习。完成今天的第一步后，再回来看看。")
         return
 
+    auto_open_lesson_id = st.session_state.pop("student_auto_open_lesson_id", None)
+    if auto_open_lesson_id:
+        _show_lesson_detail_dialog(student_id, auto_open_lesson_id)
+
+    latest_lesson = lessons[0]
+    st.markdown(
+        f"""
+        <div class="student-home-card">
+            <div class="student-home-kicker">学案模块说明</div>
+            <div class="student-home-task-title">最近 {len(lessons)} 份学案都集中放在这里</div>
+            <p class="student-home-task-desc">
+                最近一次主题：{latest_lesson[3] or latest_lesson[1] or '继续练习'}；
+                在这个页面里只做两件事：查看完整学案，或查看对应新词表。
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("## 学案列表")
     for lesson_id, lesson_type, difficulty, topic, created_at in lessons:
-        st.markdown(f"### 学案 ID：{lesson_id}")
-        st.write(f"题型：{lesson_type}")
-        st.write(f"难度：{difficulty}")
-        st.write(f"主题：{topic}")
-        st.write(f"创建时间：{created_at}")
+        st.markdown(
+            f"""
+            <div class="student-home-card">
+                <div class="student-home-kicker">学案 ID：{lesson_id}</div>
+                <div class="student-home-task-title">{topic or lesson_type or '本次学案'}</div>
+                <p class="student-home-subtitle">题型：{lesson_type or '未标注'} ｜ 难度：{difficulty or '未标注'}</p>
+                <p class="student-home-task-desc">创建时间：{created_at or '暂无记录'}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("查看完整学案", key=f"view_lesson_{lesson_id}"):
+            if st.button("查看完整学案", key=f"view_lesson_{lesson_id}", use_container_width=True):
                 _show_lesson_detail_dialog(student_id, lesson_id)
         with col2:
-            if st.button("查看本次学案新词表", key=f"view_lesson_vocab_{lesson_id}"):
+            if st.button("查看本次学案新词表", key=f"view_lesson_vocab_{lesson_id}", use_container_width=True):
                 _show_lesson_vocab_dialog(student_id, lesson_id)
 
 
@@ -1227,16 +1249,55 @@ def _render_progress(student_id: int):
         st.info("完成学习任务后，这里会逐步展示你的进度变化。")
         return
 
+    active_books = [row for row in progress_rows if row[4] > 0]
+    total_learned = sum(row[3] for row in progress_rows)
+    total_vocab = sum(row[4] for row in progress_rows)
+    total_review = sum(row[7] for row in progress_rows)
+
+    st.markdown(
+        f"""
+        <div class="student-home-card">
+            <div class="student-home-kicker">进度模块说明</div>
+            <div class="student-home-task-title">这里只看词汇书进度，不承接其他学习动作</div>
+            <p class="student-home-task-desc">
+                当前共有 {len(active_books)} 本词汇书已启动，
+                已学 {total_learned} / {total_vocab or 0}，
+                待复习词汇 {total_review} 个。
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    overview_col1, overview_col2, overview_col3 = st.columns(3)
+    with overview_col1:
+        st.metric("已启动词汇书", len(active_books))
+    with overview_col2:
+        st.metric("累计已学词汇", total_learned)
+    with overview_col3:
+        st.metric("待复习词汇", total_review)
+
+    st.markdown("## 词汇书进度")
     for row in progress_rows:
         book_id, book_name, volume_name, learned_count, total_count, mastered_count, learning_count, review_count = row
         label = book_name if not volume_name else f"{book_name}（{volume_name}）"
-        st.subheader(label)
-        st.write(f"已学：{learned_count} / {total_count}")
         ratio = (learned_count / total_count) if total_count else 0
+        st.markdown(
+            f"""
+            <div class="student-home-card">
+                <div class="student-home-kicker">词汇书</div>
+                <div class="student-home-task-title">{label}</div>
+                <p class="student-home-subtitle">已学：{learned_count} / {total_count}</p>
+                <p class="student-home-task-desc">
+                    状态分布：mastered {mastered_count} ｜ learning {learning_count} ｜ review {review_count}
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         st.progress(ratio)
-        st.write(f"状态分布：mastered {mastered_count} | learning {learning_count} | review {review_count}")
 
-        with st.expander("查看单元进度", expanded=False):
+        with st.expander(f"查看 {label} 的单元进度", expanded=False):
             unit_rows = dbs.get_student_unit_progress(student_id, book_id)
             for _, unit_name, _unit_order, unit_learned, unit_total in unit_rows:
                 st.write(f"{unit_name}：{unit_learned} / {unit_total}")
