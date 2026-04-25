@@ -150,29 +150,39 @@ def _render_preview_table(headers, rows, limit=15):
 
 
 def _render_template_management(selected_template_name, mapping, active_sheet, data_start_row):
-    st.markdown("### 模板")
-    save_name = st.text_input("模板名称", value="" if selected_template_name == "（不使用模板）" else selected_template_name)
+    st.markdown("### Templates")
+    no_template_label = "（不使用模板）"
+    current_name = "" if selected_template_name == no_template_label else selected_template_name
+    save_name = st.text_input("Template name", value=current_name)
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("保存模板", use_container_width=True):
+        if st.button("Save template", use_container_width=True):
             if not save_name.strip():
-                st.warning("请先输入模板名称。")
+                st.warning("Please enter a template name first.")
             else:
-                vis.save_import_template(
-                    save_name.strip(),
-                    {
-                        "mapping": mapping,
-                        "sheet_name": active_sheet,
-                        "data_start_row": data_start_row,
-                    },
-                )
-                st.success("模板已保存。")
-                st.rerun()
+                try:
+                    vis.save_import_template(
+                        save_name.strip(),
+                        {
+                            "mapping": mapping,
+                            "sheet_name": active_sheet,
+                            "data_start_row": data_start_row,
+                        },
+                    )
+                except Exception as exc:
+                    st.error(f"Failed to save template: {exc}")
+                else:
+                    st.success("Template saved.")
+                    st.rerun()
     with col2:
-        if selected_template_name != "（不使用模板）" and st.button("删除模板", use_container_width=True):
-            vis.delete_import_template(selected_template_name)
-            st.success("模板已删除。")
-            st.rerun()
+        if selected_template_name != no_template_label and st.button("Delete template", use_container_width=True):
+            try:
+                vis.delete_import_template(selected_template_name)
+            except Exception as exc:
+                st.error(f"Failed to delete template: {exc}")
+            else:
+                st.success("Template deleted.")
+                st.rerun()
 
 
 def _render_vocab_import():
