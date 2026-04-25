@@ -53,6 +53,49 @@ NAV_ITEMS = [
     ("profile_page", "成长画像"),
 ]
 
+PAGE_META = {
+    "home": {
+        "eyebrow": "Learning Desk",
+        "title": "学习首页",
+        "description": "今天的主任务、任务池和成长状态都集中放在这里，适合作为学生进入系统后的第一站。",
+    },
+    "initial_diagnosis": {
+        "eyebrow": "Diagnosis",
+        "title": "首次诊断",
+        "description": "先用一轮轻量诊断确认当前起点，后续任务会根据结果自动收束到更合适的学习路径。",
+    },
+    "vocab_test": {
+        "eyebrow": "Vocabulary",
+        "title": "词汇检测",
+        "description": "直接开始词汇书检测或复习检测，把今天最适合先做的词汇任务一口气完成。",
+    },
+    "recent_lessons": {
+        "eyebrow": "Lessons",
+        "title": "最近学案",
+        "description": "这里集中回看最近学案和新词表，适合承接今天任务完成后的巩固练习。",
+    },
+    "learned_words": {
+        "eyebrow": "Vocabulary Log",
+        "title": "已学单词",
+        "description": "查看已经进入学习记录的词汇积累，帮助学生建立稳定的掌握感和阶段性成果感。",
+    },
+    "progress": {
+        "eyebrow": "Progress",
+        "title": "学习进度",
+        "description": "从词汇书和单元维度回看推进情况，判断今天更适合继续学习还是先做复习巩固。",
+    },
+    "test_history": {
+        "eyebrow": "History",
+        "title": "检测记录",
+        "description": "把历史检测结果放在同一处，方便学生回看正确率变化和最近一次答题反馈。",
+    },
+    "profile_page": {
+        "eyebrow": "Growth Profile",
+        "title": "成长画像",
+        "description": "这里展示诊断结果的浓缩视图，帮助学生理解当前阶段、成长重点和下一步方向。",
+    },
+}
+
 
 def _render_section_anchor(section_key: str):
     st.markdown(f'<div id="section-{section_key}"></div>', unsafe_allow_html=True)
@@ -281,18 +324,70 @@ def _render_dashboard_styles():
     st.markdown(
         """
         <style>
+        .student-page-shell {
+            padding-top: 4px;
+        }
         .student-nav-shell {
-            margin: 6px 0 18px 0;
-            padding: 12px 14px;
+            margin: 6px 0 14px 0;
+            padding: 12px 14px 10px 14px;
             border: 1px solid #d9e6f2;
             border-radius: 18px;
-            background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
-            box-shadow: 0 8px 22px rgba(33, 76, 110, 0.06);
+            background: linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(247,251,255,0.96) 100%);
+            box-shadow: 0 10px 28px rgba(33, 76, 110, 0.08);
         }
         .student-nav-title {
             color: #486581;
             font-size: 13px;
-            margin-bottom: 10px;
+            margin-bottom: 4px;
+        }
+        .student-nav-subtitle {
+            color: #7b8794;
+            font-size: 13px;
+        }
+        .student-page-hero {
+            border: 1px solid #d9e6f2;
+            border-radius: 22px;
+            padding: 18px 20px;
+            background:
+                radial-gradient(circle at top right, rgba(227, 242, 253, 0.95), rgba(255,255,255,0) 30%),
+                linear-gradient(180deg, #ffffff 0%, #f6fbff 100%);
+            box-shadow: 0 10px 30px rgba(33, 76, 110, 0.08);
+            margin-bottom: 16px;
+        }
+        .student-page-eyebrow {
+            color: #5a7184;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 6px;
+        }
+        .student-page-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        .student-page-title {
+            color: #102a43;
+            font-size: 28px;
+            font-weight: 700;
+            margin: 0;
+        }
+        .student-page-description {
+            color: #486581;
+            font-size: 14px;
+            line-height: 1.7;
+            margin-bottom: 0;
+        }
+        .student-page-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: #e8f4ff;
+            color: #1f5f8b;
+            font-size: 13px;
+            white-space: nowrap;
         }
         .student-home-card {
             border: 1px solid #d9e6f2;
@@ -366,8 +461,26 @@ def _render_dashboard_styles():
             font-size: 15px;
             line-height: 1.5;
         }
+        div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {
+            min-height: 42px;
+        }
         div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="secondary"] {
             border-radius: 999px;
+            border: 1px solid #d7e7f6;
+            background: #f7fbff;
+            color: #335c81;
+        }
+        div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"] {
+            border-radius: 999px;
+            background: linear-gradient(135deg, #165d8c 0%, #0f7a9f 100%);
+            border: none;
+            box-shadow: 0 8px 18px rgba(18, 103, 145, 0.24);
+        }
+        @media (max-width: 900px) {
+            .student-page-title-row {
+                flex-direction: column;
+                align-items: flex-start;
+            }
         }
         </style>
         """,
@@ -381,6 +494,7 @@ def _render_top_navigation():
         """
         <div class="student-nav-shell">
             <div class="student-nav-title">学习导航</div>
+            <div class="student-nav-subtitle">把今天要做的事情收成几个清晰页面，减少上下翻找。</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -391,6 +505,53 @@ def _render_top_navigation():
             button_type = "primary" if current_page == page_key else "secondary"
             if st.button(label, key=f"student_nav_{page_key}", type=button_type, use_container_width=True):
                 _set_current_page(page_key, focus_section="task_pool" if page_key == "home" else None)
+
+
+def _render_page_hero(current_page: str, home_data: dict):
+    meta = PAGE_META.get(current_page, PAGE_META["home"])
+    badge = ""
+
+    if current_page == "home":
+        badge = f"今日主任务：{home_data.get('primary_task', '开始今天的成长之旅')}"
+    elif current_page == "vocab_test":
+        if st.session_state.get("student_test_payload"):
+            badge = "当前状态：正在进行中的检测"
+        else:
+            badge = "当前状态：可直接开始新一轮检测"
+    elif current_page == "initial_diagnosis":
+        badge = "当前状态：诊断完成后会自动更新首页任务"
+    elif current_page == "profile_page":
+        badge = f"当前阶段：{home_data.get('stage_label', '准备起步')}"
+    else:
+        badge = f"当前称号：{home_data.get('title_label', '启程学员')}"
+
+    st.markdown(
+        f"""
+        <div class="student-page-hero">
+            <div class="student-page-eyebrow">{meta["eyebrow"]}</div>
+            <div class="student-page-title-row">
+                <div class="student-page-title">{meta["title"]}</div>
+                <div class="student-page-badge">{badge}</div>
+            </div>
+            <p class="student-page-description">{meta["description"]}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_page_quick_actions(current_page: str):
+    if current_page == "home":
+        return
+
+    left, right = st.columns([1, 1])
+    with left:
+        if st.button("返回学习首页", key=f"back_home_{current_page}", use_container_width=True):
+            _set_current_page("home", focus_section="task_pool")
+    with right:
+        if current_page != "profile_page":
+            if st.button("查看成长画像", key=f"jump_profile_{current_page}", use_container_width=True):
+                _set_current_page("profile_page")
 
 
 def _render_welcome_section(home_data: dict):
@@ -1184,12 +1345,15 @@ def main():
         return
 
     student_id = student["id"]
+    st.markdown('<div class="student-page-shell">', unsafe_allow_html=True)
     _render_logged_in_header(student)
     _render_dashboard_styles()
-    _render_top_navigation()
 
     home_data = build_student_home_viewmodel(student)
     current_page = st.session_state.get("student_current_page", "home")
+    _render_top_navigation()
+    _render_page_hero(current_page, home_data)
+    _render_page_quick_actions(current_page)
 
     if current_page == "home":
         _render_home_page(home_data)
@@ -1209,6 +1373,7 @@ def main():
         _render_test_history(student_id)
     else:
         _render_home_page(home_data)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _show_debug_info():
