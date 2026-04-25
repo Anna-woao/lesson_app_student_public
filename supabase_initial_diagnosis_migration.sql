@@ -12,6 +12,8 @@ create table if not exists public.student_diagnostic_records (
     created_at timestamptz default now()
 );
 
+alter table public.student_diagnostic_records disable row level security;
+
 create index if not exists student_diagnostic_records_student_id_created_idx
 on public.student_diagnostic_records (student_id, created_at desc);
 
@@ -27,6 +29,8 @@ create table if not exists public.student_profile_snapshots (
     profile_payload jsonb default '{}'::jsonb,
     created_at timestamptz default now()
 );
+
+alter table public.student_profile_snapshots disable row level security;
 
 create index if not exists student_profile_snapshots_student_id_created_idx
 on public.student_profile_snapshots (student_id, created_at desc);
