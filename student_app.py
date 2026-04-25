@@ -854,8 +854,133 @@ def _clear_diagnosis_session_state():
         st.session_state.pop(key, None)
 
 
+def _build_saved_diagnosis_result(student_id: int):
+    latest_record = dbs.get_latest_diagnosis_record(student_id) or {}
+    latest_snapshot = dbs.get_latest_profile_snapshot(student_id) or {}
+    profile_payload = latest_snapshot.get("profile_payload") or {}
+
+    if not latest_record and not latest_snapshot:
+        return None
+
+    return {
+        "scores": latest_record.get("module_scores") or {},
+        "totals": latest_record.get("module_totals") or {},
+        "module_reports": profile_payload.get("module_reports") or {},
+        "priority_module": profile_payload.get("priority_module"),
+        "strongest_module": profile_payload.get("strongest_module"),
+        "overall_accuracy": profile_payload.get("overall_accuracy"),
+        "overall_summary": profile_payload.get("overall_summary") or latest_snapshot.get("summary_text") or "",
+        "title_label": latest_snapshot.get("title_label") or "",
+        "stage_label": latest_snapshot.get("stage_label") or "",
+        "growth_focus": latest_snapshot.get("growth_focus") or "",
+        "summary_text": latest_snapshot.get("summary_text") or "",
+        "next_actions": profile_payload.get("next_actions") or [],
+        "dimensions": profile_payload.get("dimensions") or {},
+        "suggested_track": profile_payload.get("suggested_track") or latest_record.get("suggested_track") or "",
+        "vocab_band": profile_payload.get("vocab_band") or latest_record.get("vocab_band") or "",
+        "reading_profile": profile_payload.get("reading_profile") or latest_record.get("reading_profile") or "",
+        "grammar_gap": profile_payload.get("grammar_gap") or latest_record.get("grammar_gap") or "",
+        "writing_profile": profile_payload.get("writing_profile") or latest_record.get("writing_profile") or "",
+    }
+
+
+def _render_diagnosis_module_overview(definition, active_step: int | None = None):
+    columns = st.columns(len(definition))
+    for index, (column, module) in enumerate(zip(columns, definition)):
+        if active_step is None:
+            status_label = "待完成"
+        elif index < active_step:
+            status_label = "已完成"
+        elif index == active_step:
+            status_label = "当前进行中"
+        else:
+            status_label = "待完成"
+
+        with column:
+            st.markdown(
+                f"""
+                <div class="student-diagnosis-mini-card" style="min-height: 150px;">
+                    <div class="student-diagnosis-mini-title">{index + 1}. {module.get("short_title", module["title"])}</div>
+                    <div class="student-diagnosis-mini-body">
+                        {status_label}<br/>
+                        预计 {module.get("estimated_minutes", 3)} 分钟<br/>
+                        {len(module.get("questions", []))} 道题
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
 def _render_diagnosis_result(result: dict):
     dimensions = result.get("dimensions", {})
+    module_reports = result.get("module_reports", {})
+    card_items = [
+        ("词汇量区间", result.get("vocab_band", "")),
+        ("阅读能力画像", result.get("reading_profile", "")),
+        ("语法基础缺口", result.get("grammar_gap", "")),
+        ("写作基础判断", result.get("writing_profile", "")),
+        ("建议学习轨道", result.get("suggested_track", "")),
+        ("当前成长重点", result.get("growth_focus", "")),
+    ]
+    cards_html = "".join(
+        f"""
+        <div class="student-diagnosis-mini-card">
+            <div class="student-diagnosis-mini-title">{title}</div>
+            <div class="student-diagnosis-mini-body">{body or '待生成'}</div>
+        </div>
+        """
+        for title, body in card_items
+    )
+    st.markdown(
+        f"""
+        <div class="student-home-card">
+            <div class="student-home-kicker">首次诊断结果</div>
+            <div class="student-home-task-title">{result.get("title_label", "")}｜{result.get("stage_label", "")}</div>
+            <p class="student-home-subtitle">{result.get("overall_summary", "")}</p>
+            <p class="student-home-subtitle">{result.get("summary_text", "")}</p>
+            <div class="student-diagnosis-grid">
+                {cards_html}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if module_reports:
+        st.markdown("### 模块诊断拆解")
+        for module_key in ["vocab", "reading", "grammar", "writing"]:
+            module = module_reports.get(module_key) or {}
+            if not module:
+                continue
+            score = module.get("score", 0)
+            total = module.get("total", 0)
+            ratio = module.get("ratio", 0.0) or 0.0
+            st.markdown(
+                f"""
+                <div class="student-home-card">
+                    <div class="student-home-kicker">{module.get("title", module_key)}</div>
+                    <div class="student-home-task-title">{score} / {total} ｜ {module.get("level_label", "")}</div>
+                    <p class="student-home-subtitle">{module.get("summary", "")}</p>
+                    <p class="student-home-task-desc">{module.get("recommendation", "")}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.progress(ratio)
+
+    next_actions = [item for item in result.get("next_actions", []) if item]
+    if next_actions:
+        st.markdown("### 下一步建议")
+        for item in next_actions:
+            st.write(f"- {item}")
+
+    if dimensions:
+        with st.expander("查看六维画像说明", expanded=False):
+            for title, body in dimensions.items():
+                st.markdown(f"### {title}")
+                st.write(body)
+    return
     card_items = [
         ("词汇量区间", result.get("vocab_band", "")),
         ("阅读能力画像", result.get("reading_profile", "")),
