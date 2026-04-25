@@ -41,6 +41,7 @@ class StudentHomeViewModel:
     streak_days: int
     unlocked_modules: List[str]
     growth_feedback: str
+    diagnosis_summary: Dict[str, Any]
     current_task_cards: List[Dict[str, Any]]
     history_task_cards: List[Dict[str, Any]]
     history_summary: Dict[str, int]
@@ -313,6 +314,19 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
     title_label = (latest_snapshot or {}).get("title_label") or _build_title_label(learned_vocab_count)
     stage_label = (latest_snapshot or {}).get("stage_label") or _build_stage_label(latest_accuracy)
     growth_feedback = (latest_snapshot or {}).get("summary_text") or _build_growth_feedback(latest_accuracy)
+    profile_payload = (latest_snapshot or {}).get("profile_payload") or {}
+    diagnosis_summary = {
+        "has_diagnosis": has_diagnosis,
+        "title_label": title_label,
+        "stage_label": stage_label,
+        "growth_focus": (latest_snapshot or {}).get("growth_focus") or "",
+        "suggested_track": profile_payload.get("suggested_track") or (latest_diagnosis or {}).get("suggested_track") or "",
+        "vocab_band": profile_payload.get("vocab_band") or (latest_diagnosis or {}).get("vocab_band") or "",
+        "reading_profile": profile_payload.get("reading_profile") or (latest_diagnosis or {}).get("reading_profile") or "",
+        "grammar_gap": profile_payload.get("grammar_gap") or (latest_diagnosis or {}).get("grammar_gap") or "",
+        "writing_profile": profile_payload.get("writing_profile") or (latest_diagnosis or {}).get("writing_profile") or "",
+        "dimensions": profile_payload.get("dimensions") or {},
+    }
     viewmodel = StudentHomeViewModel(
         student_name=student.get("name", "同学"),
         title_label=title_label,
@@ -327,6 +341,7 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
             has_learned_vocab=has_learned_vocab or has_diagnosis,
         ),
         growth_feedback=growth_feedback,
+        diagnosis_summary=diagnosis_summary,
         current_task_cards=[asdict(card) for card in current_task_cards],
         history_task_cards=[
             asdict(card)
