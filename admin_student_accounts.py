@@ -8,6 +8,7 @@ import streamlit as st
 
 import db_student as dbs
 import vocab_import_service as vis
+from supabase_client import has_admin_supabase_client
 
 
 ROLE_LABELS = {
@@ -55,7 +56,17 @@ def _render_admin_login():
     st.rerun()
 
 
+def _require_admin_data_access() -> bool:
+    if has_admin_supabase_client():
+        return True
+    st.error("当前管理员后台缺少 SUPABASE_SERVICE_ROLE_KEY，已拒绝加载账号管理和词汇导入。")
+    st.caption("请先在 Streamlit Secrets 或环境变量中配置 SUPABASE_SERVICE_ROLE_KEY。")
+    return False
+
+
 def _render_accounts():
+    if not _require_admin_data_access():
+        return
     try:
         rows = dbs.get_student_login_accounts()
     except Exception as e:
@@ -165,6 +176,8 @@ def _render_template_management(selected_template_name, mapping, active_sheet, d
 
 
 def _render_vocab_import():
+    if not _require_admin_data_access():
+        return
     st.subheader("通用词汇导入")
     st.caption("上传任意 Excel，确认一次列映射后就可以保存成模板，后面同类表格直接复用。")
 
