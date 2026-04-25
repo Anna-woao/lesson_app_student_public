@@ -727,38 +727,50 @@ def get_student_book_progress(student_id: int):
         .eq("student_id", student_id)
         .execute()
     ).data or []
-    progress_by_vocab = {
-        row.get("vocab_item_id"): row.get("status", "learning")
-        for row in progress_rows
-        if row.get("vocab_item_id") is not None
-    }
+    progress_vocab_ids = [row.get("vocab_item_id") for row in progress_rows if row.get("vocab_item_id") is not None]
+    progress_vocab_map = _fetch_vocab_detail_map(progress_vocab_ids)
+    progress_by_key = {}
+    for row in progress_rows:
+        vocab_item_id = row.get("vocab_item_id")
+        progress_key = _progress_key_for_vocab(vocab_item_id, progress_vocab_map)
+        if progress_key is None:
+            continue
+        progress_by_key[progress_key] = _merge_progress_status(
+            progress_by_key.get(progress_key),
+            row.get("status", "learning"),
+        )
 
     buv_rows = _fetch_all_rows(
         supabase.table("book_unit_vocab").select("book_id, vocab_item_id")
     )
+    book_vocab_ids = [row.get("vocab_item_id") for row in buv_rows if row.get("vocab_item_id") is not None]
+    book_vocab_map_rows = _fetch_vocab_detail_map(book_vocab_ids)
     book_vocab_map = {}
     for row in buv_rows:
         book_id = row.get("book_id")
         vocab_item_id = row.get("vocab_item_id")
         if book_id is None or vocab_item_id is None:
             continue
-        book_vocab_map.setdefault(book_id, set()).add(vocab_item_id)
+        progress_key = _progress_key_for_vocab(vocab_item_id, book_vocab_map_rows)
+        if progress_key is None:
+            continue
+        book_vocab_map.setdefault(book_id, set()).add(progress_key)
 
     result = []
     for book in books:
         book_id = book["id"]
-        book_vocab_ids = book_vocab_map.get(book_id, set())
-        learned_ids = {vocab_item_id for vocab_item_id in book_vocab_ids if vocab_item_id in progress_by_vocab}
-        mastered_count = sum(1 for vocab_item_id in learned_ids if progress_by_vocab.get(vocab_item_id) == "mastered")
-        learning_count = sum(1 for vocab_item_id in learned_ids if progress_by_vocab.get(vocab_item_id) == "learning")
-        review_count = sum(1 for vocab_item_id in learned_ids if progress_by_vocab.get(vocab_item_id) == "review")
+        book_vocab_keys = book_vocab_map.get(book_id, set())
+        learned_keys = {progress_key for progress_key in book_vocab_keys if progress_key in progress_by_key}
+        mastered_count = sum(1 for progress_key in learned_keys if progress_by_key.get(progress_key) == "mastered")
+        learning_count = sum(1 for progress_key in learned_keys if progress_by_key.get(progress_key) == "learning")
+        review_count = sum(1 for progress_key in learned_keys if progress_by_key.get(progress_key) == "review")
 
         result.append((
             book_id,
             book.get("book_name"),
             book.get("volume_name"),
-            len(learned_ids),
-            len(book_vocab_ids),
+            len(learned_keys),
+            len(book_vocab_keys),
             mastered_count,
             learning_count,
             review_count,
@@ -779,6 +791,8 @@ def get_student_unit_progress(student_id: int, book_id: int):
     buv_rows = _fetch_all_rows(
         supabase.table("book_unit_vocab").select("unit_id, vocab_item_id").eq("book_id", book_id)
     )
+    book_vocab_ids = [row.get("vocab_item_id") for row in buv_rows if row.get("vocab_item_id") is not None]
+    book_vocab_map_rows = _fetch_vocab_detail_map(book_vocab_ids)
 
     progress_rows = (
         supabase.table("student_vocab_progress")
@@ -786,39 +800,35 @@ def get_student_unit_progress(student_id: int, book_id: int):
         .eq("student_id", student_id)
         .execute()
     ).data or []
-    learned_vocab_ids = {
-        row.get("vocab_item_id")
+    progress_vocab_ids = [row.get("vocab_item_id") for row in progress_rows if row.get("vocab_item_id") is not None]
+    progress_vocab_map = _fetch_vocab_detail_map(progress_vocab_ids)
+    learned_vocab_keys = {
+        _progress_key_for_vocab(row.get("vocab_item_id"), progress_vocab_map)
         for row in progress_rows
         if row.get("vocab_item_id") is not None
     }
-
-    vocab_to_units = {}
-    for row in buv_rows:
-        unit_id = row.get("unit_id")
-        vocab_item_id = row.get("vocab_item_id")
-        if unit_id is None or vocab_item_id is None:
-            continue
-        vocab_to_units.setdefault(vocab_item_id, set()).add(unit_id)
+    learned_vocab_keys.discard(None)
 
     result = []
     for unit in units:
         unit_id = unit["id"]
-        total_vocab_ids = {
-            row["vocab_item_id"]
+        total_vocab_keys = {
+            _progress_key_for_vocab(row.get("vocab_item_id"), book_vocab_map_rows)
             for row in buv_rows
             if row.get("unit_id") == unit_id and row.get("vocab_item_id") is not None
         }
+        total_vocab_keys.discard(None)
         learned_in_unit = {
-            vocab_item_id
-            for vocab_item_id in total_vocab_ids
-            if vocab_item_id in learned_vocab_ids
+            progress_key
+            for progress_key in total_vocab_keys
+            if progress_key in learned_vocab_keys
         }
         result.append((
             unit_id,
             unit.get("unit_name"),
             unit.get("unit_order", 0),
             len(learned_in_unit),
-            len(total_vocab_ids),
+            len(total_vocab_keys),
         ))
     return result
 
