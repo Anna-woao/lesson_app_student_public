@@ -61,6 +61,19 @@ def get_all_students():
     return [(row["id"], row["name"], row["grade"]) for row in rows]
 
 
+def get_student_basic_info(student_id: int):
+    supabase = get_supabase_client()
+    resp = (
+        supabase.table("students")
+        .select("id, name, grade")
+        .eq("id", student_id)
+        .limit(1)
+        .execute()
+    )
+    rows = resp.data or []
+    return rows[0] if rows else None
+
+
 def authenticate_student(login_account: str, login_password: str):
     account = (login_account or "").strip()
     password = (login_password or "").strip()
@@ -594,6 +607,86 @@ def get_student_activity_dates(student_id: int, days: int = 30):
             activity_dates.add(str(created_at)[:10])
 
     return sorted(activity_dates, reverse=True)[:days]
+
+
+def get_latest_diagnosis_record(student_id: int):
+    supabase = get_supabase_client()
+    try:
+        resp = (
+            supabase.table("student_diagnostic_records")
+            .select("*")
+            .eq("student_id", student_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        return None
+    rows = resp.data or []
+    return rows[0] if rows else None
+
+
+def get_latest_profile_snapshot(student_id: int):
+    supabase = get_supabase_client()
+    try:
+        resp = (
+            supabase.table("student_profile_snapshots")
+            .select("*")
+            .eq("student_id", student_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        return None
+    rows = resp.data or []
+    return rows[0] if rows else None
+
+
+def save_initial_diagnosis_result(student_id: int, diagnosis_result: dict):
+    supabase = get_supabase_client()
+
+    record_payload = {
+        "student_id": student_id,
+        "diagnosis_type": "initial_mvp",
+        "vocab_band": diagnosis_result.get("vocab_band"),
+        "reading_profile": diagnosis_result.get("reading_profile"),
+        "grammar_gap": diagnosis_result.get("grammar_gap"),
+        "writing_profile": diagnosis_result.get("writing_profile"),
+        "suggested_track": diagnosis_result.get("suggested_track"),
+        "module_scores": diagnosis_result.get("scores", {}),
+        "module_totals": diagnosis_result.get("totals", {}),
+    }
+    record_resp = supabase.table("student_diagnostic_records").insert(record_payload).execute()
+    record_rows = record_resp.data or []
+    record = record_rows[0] if record_rows else None
+    record_id = record.get("id") if record else None
+
+    snapshot_payload = {
+        "student_id": student_id,
+        "source_record_id": record_id,
+        "source_type": "initial_diagnosis",
+        "title_label": diagnosis_result.get("title_label"),
+        "stage_label": diagnosis_result.get("stage_label"),
+        "growth_focus": diagnosis_result.get("growth_focus"),
+        "summary_text": diagnosis_result.get("summary_text"),
+        "profile_payload": {
+            "dimensions": diagnosis_result.get("dimensions", {}),
+            "suggested_track": diagnosis_result.get("suggested_track"),
+            "vocab_band": diagnosis_result.get("vocab_band"),
+            "reading_profile": diagnosis_result.get("reading_profile"),
+            "grammar_gap": diagnosis_result.get("grammar_gap"),
+            "writing_profile": diagnosis_result.get("writing_profile"),
+        },
+    }
+    snapshot_resp = supabase.table("student_profile_snapshots").insert(snapshot_payload).execute()
+    snapshot_rows = snapshot_resp.data or []
+    snapshot = snapshot_rows[0] if snapshot_rows else None
+
+    return {
+        "record": record,
+        "snapshot": snapshot,
+    }
 
 
 def get_vocab_test_record_items(test_record_id: int):
