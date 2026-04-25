@@ -1061,12 +1061,25 @@ def _fetch_vocab_detail_map(vocab_ids: List[int]) -> Dict[int, dict]:
     supabase = get_supabase_client()
     if not vocab_ids:
         return {}
-    rows = (
-        supabase.table("vocab_items")
-        .select("id, lemma, normalized_lemma, default_meaning")
-        .in_("id", vocab_ids)
-        .execute()
-    ).data or []
+    try:
+        rows = (
+            supabase.table("vocab_items")
+            .select("id, lemma, normalized_lemma, default_meaning")
+            .in_("id", vocab_ids)
+            .execute()
+        ).data or []
+    except Exception as exc:
+        error_text = str(exc)
+        if "normalized_lemma" not in error_text and "PGRST204" not in error_text:
+            raise
+        rows = (
+            supabase.table("vocab_items")
+            .select("id, lemma, default_meaning")
+            .in_("id", vocab_ids)
+            .execute()
+        ).data or []
+    for row in rows:
+        row["normalized_lemma"] = _normalize_lemma(row.get("normalized_lemma") or row.get("lemma") or "")
     return {r["id"]: r for r in rows}
 
 
