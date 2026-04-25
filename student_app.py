@@ -44,6 +44,7 @@ SECTION_TO_PAGE = {
 
 NAV_ITEMS = [
     ("home", "学习首页"),
+    ("task_pool", "学习任务池"),
     ("initial_diagnosis", "首次诊断"),
     ("vocab_test", "词汇检测"),
     ("recent_lessons", "最近学案"),
@@ -57,7 +58,12 @@ PAGE_META = {
     "home": {
         "eyebrow": "Learning Desk",
         "title": "学习首页",
-        "description": "今天的主任务、任务池和成长状态都集中放在这里，适合作为学生进入系统后的第一站。",
+        "description": "这里只保留今日驾驶舱视图，帮助学生快速确认状态、主任务和进入今天的学习节奏。",
+    },
+    "task_pool": {
+        "eyebrow": "Task Flow",
+        "title": "学习任务池",
+        "description": "这里专门承接今天要做的任务和可回看的历史内容，学生进入后只需要决定下一步做什么。",
     },
     "initial_diagnosis": {
         "eyebrow": "Diagnosis",
@@ -518,6 +524,8 @@ def _render_page_hero(current_page: str, home_data: dict):
             badge = "当前状态：正在进行中的检测"
         else:
             badge = "当前状态：可直接开始新一轮检测"
+    elif current_page == "task_pool":
+        badge = f"今日主任务：{home_data.get('primary_task', '开始今天的成长之旅')}"
     elif current_page == "initial_diagnosis":
         badge = "当前状态：诊断完成后会自动更新首页任务"
     elif current_page == "profile_page":
@@ -1310,9 +1318,8 @@ def _render_vocab_test(student_id: int):
 
 
 def _render_home_page(home_data: dict):
-    _set_current_page("home", focus_section=st.session_state.get("student_home_focus_section") or "task_pool")
+    _set_current_page("home")
     _render_welcome_section(home_data)
-    _render_diagnosis_summary_card(home_data)
 
     top_left, top_right = st.columns([1.2, 1])
     with top_left:
@@ -1321,6 +1328,24 @@ def _render_home_page(home_data: dict):
         st.markdown("## 轻状态")
         _render_light_status_section(home_data)
 
+    st.markdown("## 今日学习提醒")
+    st.markdown(
+        f"""
+        <div class="student-home-card">
+            <div class="student-home-kicker">今天先做什么</div>
+            <div class="student-home-task-title">{home_data["primary_task"]}</div>
+            <p class="student-home-task-desc">
+                点击上方“开始今天的成长之旅”会直接进入学习任务池；
+                任务池页面只负责承接今天的任务，不再和其他模块混在一起。
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_task_pool_page(home_data: dict):
+    _set_current_page("task_pool", focus_section="task_pool")
     _render_task_pool_section(home_data)
 
     history_summary = home_data.get("history_summary", {})
@@ -1357,6 +1382,8 @@ def main():
 
     if current_page == "home":
         _render_home_page(home_data)
+    elif current_page == "task_pool":
+        _render_task_pool_page(home_data)
     elif current_page == "profile_page":
         _render_profile_page(home_data)
     elif current_page == "initial_diagnosis":
