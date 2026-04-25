@@ -432,35 +432,42 @@ def get_student_book_progress(student_id: int):
 
     progress_rows = (
         supabase.table("student_vocab_progress")
-        .select("vocab_item_id, first_source_book_id, first_source_unit_id, status")
+        .select("vocab_item_id, status")
         .eq("student_id", student_id)
         .execute()
     ).data or []
+    progress_by_vocab = {
+        row.get("vocab_item_id"): row.get("status", "learning")
+        for row in progress_rows
+        if row.get("vocab_item_id") is not None
+    }
+
+    buv_rows = _fetch_all_rows(
+        supabase.table("book_unit_vocab").select("book_id, vocab_item_id")
+    )
+    book_vocab_map = {}
+    for row in buv_rows:
+        book_id = row.get("book_id")
+        vocab_item_id = row.get("vocab_item_id")
+        if book_id is None or vocab_item_id is None:
+            continue
+        book_vocab_map.setdefault(book_id, set()).add(vocab_item_id)
 
     result = []
     for book in books:
         book_id = book["id"]
-        total_resp = (
-            supabase.table("book_unit_vocab")
-            .select("id", count="exact")
-            .eq("book_id", book_id)
-            .execute()
-        )
-        total_count = total_resp.count or 0
-
-        learned_rows = [r for r in progress_rows if r.get("first_source_book_id") == book_id]
-        learned_ids = {r["vocab_item_id"] for r in learned_rows if r.get("vocab_item_id") is not None}
-
-        mastered_count = len({r["vocab_item_id"] for r in learned_rows if r.get("status") == "mastered"})
-        learning_count = len({r["vocab_item_id"] for r in learned_rows if r.get("status") == "learning"})
-        review_count = len({r["vocab_item_id"] for r in learned_rows if r.get("status") == "review"})
+        book_vocab_ids = book_vocab_map.get(book_id, set())
+        learned_ids = {vocab_item_id for vocab_item_id in book_vocab_ids if vocab_item_id in progress_by_vocab}
+        mastered_count = sum(1 for vocab_item_id in learned_ids if progress_by_vocab.get(vocab_item_id) == "mastered")
+        learning_count = sum(1 for vocab_item_id in learned_ids if progress_by_vocab.get(vocab_item_id) == "learning")
+        review_count = sum(1 for vocab_item_id in learned_ids if progress_by_vocab.get(vocab_item_id) == "review")
 
         result.append((
             book_id,
             book.get("book_name"),
             book.get("volume_name"),
             len(learned_ids),
-            total_count,
+            len(book_vocab_ids),
             mastered_count,
             learning_count,
             review_count,
@@ -484,11 +491,15 @@ def get_student_unit_progress(student_id: int, book_id: int):
 
     progress_rows = (
         supabase.table("student_vocab_progress")
-        .select("vocab_item_id, first_source_book_id, first_source_unit_id")
+        .select("vocab_item_id")
         .eq("student_id", student_id)
-        .eq("first_source_book_id", book_id)
         .execute()
     ).data or []
+    learned_vocab_ids = {
+        row.get("vocab_item_id")
+        for row in progress_rows
+        if row.get("vocab_item_id") is not None
+    }
 
     vocab_to_units = {}
     for row in buv_rows:
@@ -498,14 +509,6 @@ def get_student_unit_progress(student_id: int, book_id: int):
             continue
         vocab_to_units.setdefault(vocab_item_id, set()).add(unit_id)
 
-    normalized_progress = []
-    for row in progress_rows:
-        vocab_item_id = row.get("vocab_item_id")
-        unit_id = row.get("first_source_unit_id")
-        if unit_id is None and vocab_item_id in vocab_to_units and len(vocab_to_units[vocab_item_id]) == 1:
-            unit_id = list(vocab_to_units[vocab_item_id])[0]
-        normalized_progress.append((vocab_item_id, unit_id))
-
     result = []
     for unit in units:
         unit_id = unit["id"]
@@ -514,16 +517,16 @@ def get_student_unit_progress(student_id: int, book_id: int):
             for row in buv_rows
             if row.get("unit_id") == unit_id and row.get("vocab_item_id") is not None
         }
-        learned_vocab_ids = {
+        learned_in_unit = {
             vocab_item_id
-            for vocab_item_id, learned_unit_id in normalized_progress
-            if learned_unit_id == unit_id and vocab_item_id is not None
+            for vocab_item_id in total_vocab_ids
+            if vocab_item_id in learned_vocab_ids
         }
         result.append((
             unit_id,
             unit.get("unit_name"),
             unit.get("unit_order", 0),
-            len(learned_vocab_ids),
+            len(learned_in_unit),
             len(total_vocab_ids),
         ))
     return result
