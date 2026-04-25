@@ -14,6 +14,10 @@ from supabase_client import get_supabase_client
 PASSWORD_HASH_ITERATIONS = 200_000
 
 
+class DiagnosisStorageNotReadyError(RuntimeError):
+    """首次诊断结果表未就绪时抛出的友好错误。"""
+
+
 def _make_password_hash(password: str) -> str:
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac(
@@ -657,7 +661,21 @@ def save_initial_diagnosis_result(student_id: int, diagnosis_result: dict):
         "module_scores": diagnosis_result.get("scores", {}),
         "module_totals": diagnosis_result.get("totals", {}),
     }
-    record_resp = supabase.table("student_diagnostic_records").insert(record_payload).execute()
+    try:
+        record_resp = supabase.table("student_diagnostic_records").insert(record_payload).execute()
+    except Exception as exc:
+        message = str(exc)
+        if (
+            "student_diagnostic_records" in message
+            or "student_profile_snapshots" in message
+            or "schema cache" in message
+            or "PGRST205" in message
+        ):
+            raise DiagnosisStorageNotReadyError(
+                "Supabase 尚未创建首次诊断结果表，请先执行 "
+                "`supabase_initial_diagnosis_migration.sql`。"
+            ) from exc
+        raise
     record_rows = record_resp.data or []
     record = record_rows[0] if record_rows else None
     record_id = record.get("id") if record else None
@@ -679,7 +697,21 @@ def save_initial_diagnosis_result(student_id: int, diagnosis_result: dict):
             "writing_profile": diagnosis_result.get("writing_profile"),
         },
     }
-    snapshot_resp = supabase.table("student_profile_snapshots").insert(snapshot_payload).execute()
+    try:
+        snapshot_resp = supabase.table("student_profile_snapshots").insert(snapshot_payload).execute()
+    except Exception as exc:
+        message = str(exc)
+        if (
+            "student_diagnostic_records" in message
+            or "student_profile_snapshots" in message
+            or "schema cache" in message
+            or "PGRST205" in message
+        ):
+            raise DiagnosisStorageNotReadyError(
+                "Supabase 尚未创建首次诊断结果表，请先执行 "
+                "`supabase_initial_diagnosis_migration.sql`。"
+            ) from exc
+        raise
     snapshot_rows = snapshot_resp.data or []
     snapshot = snapshot_rows[0] if snapshot_rows else None
 
