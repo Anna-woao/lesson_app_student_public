@@ -110,9 +110,12 @@ def _render_accounts():
         st.markdown("---")
 
 
+NO_TEMPLATE_LABEL = "(No template)"
+
+
 def _template_select_options():
     templates = vis.list_import_templates()
-    options = ["（不使用模板）"] + [item["name"] for item in templates]
+    options = [NO_TEMPLATE_LABEL] + [item["name"] for item in templates]
     return options, {item["name"]: item for item in templates}
 
 
@@ -151,7 +154,7 @@ def _render_preview_table(headers, rows, limit=15):
 
 def _render_template_management(selected_template_name, mapping, active_sheet, data_start_row):
     st.markdown("### Templates")
-    no_template_label = "（不使用模板）"
+    no_template_label = NO_TEMPLATE_LABEL
     current_name = "" if selected_template_name == no_template_label else selected_template_name
     save_name = st.text_input("Template name", value=current_name)
     col1, col2 = st.columns(2)
@@ -205,7 +208,7 @@ def _render_vocab_import():
     mapping = _default_mapping(preview["headers"], guessed_mapping)
     data_start_row_default = 1
 
-    if selected_template_name != "（不使用模板）":
+    if selected_template_name != NO_TEMPLATE_LABEL:
         template = template_lookup[selected_template_name]
         mapping.update(template.get("mapping", {}))
         data_start_row_default = int(template.get("data_start_row", 1) or 1)
