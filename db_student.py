@@ -1047,6 +1047,34 @@ def _fetch_vocab_map(vocab_ids: List[int]) -> Dict[int, Tuple[str, str]]:
     return {r["id"]: (r.get("lemma", ""), r.get("default_meaning", "") or "") for r in rows}
 
 
+def _fetch_vocab_detail_map(vocab_ids: List[int]) -> Dict[int, dict]:
+    supabase = get_supabase_client()
+    if not vocab_ids:
+        return {}
+    rows = (
+        supabase.table("vocab_items")
+        .select("id, lemma, normalized_lemma, default_meaning")
+        .in_("id", vocab_ids)
+        .execute()
+    ).data or []
+    return {r["id"]: r for r in rows}
+
+
+def _progress_key_for_vocab(vocab_item_id: Optional[int], vocab_rows_map: Dict[int, dict]) -> Optional[str]:
+    if vocab_item_id is None:
+        return None
+    vocab_row = vocab_rows_map.get(vocab_item_id, {})
+    normalized = (vocab_row.get("normalized_lemma") or "").strip()
+    return normalized or f"id:{vocab_item_id}"
+
+
+def _merge_progress_status(current_status: Optional[str], new_status: Optional[str]) -> str:
+    order = {"learning": 1, "review": 2, "mastered": 3}
+    current = current_status or "learning"
+    incoming = new_status or "learning"
+    return incoming if order.get(incoming, 0) >= order.get(current, 0) else current
+
+
 def build_progress_test(student_id: int, test_type: str, test_mode: str, test_count: int):
     supabase = get_supabase_client()
     status_filter = "learning" if test_type == "新词检测" else "review"
