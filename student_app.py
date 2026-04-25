@@ -7,7 +7,6 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 import db_student as dbs
-from db_student import DiagnosisStorageNotReadyError
 from student_diagnosis_service import (
     evaluate_initial_diagnosis,
     get_initial_diagnosis_definition,
@@ -20,6 +19,7 @@ st.title("英语辅导系统｜学生端")
 st.write("这里是学生使用的前台页面。")
 
 SECTION_LABELS = {
+    "task_pool": "学习任务池",
     "initial_diagnosis": "首次诊断",
     "profile_page": "我的成长画像",
     "recent_lessons": "我的最近学案",
@@ -28,6 +28,123 @@ SECTION_LABELS = {
     "vocab_test": "我的词汇检测",
     "test_history": "我的检测记录",
 }
+
+
+def _render_section_anchor(section_key: str):
+    st.markdown(f'<div id="section-{section_key}"></div>', unsafe_allow_html=True)
+
+
+def _set_focus_section(section_key: str):
+    st.session_state["student_home_focus_section"] = section_key
+    st.session_state["student_pending_scroll_section"] = section_key
+
+
+def _render_focus_scroll():
+    target_section = st.session_state.pop("student_pending_scroll_section", None)
+    if not target_section:
+        return
+
+    components.html(
+        f"""
+        <script>
+        const target = window.parent.document.getElementById("section-{target_section}");
+        if (target) {{
+            target.scrollIntoView({{ behavior: "smooth", block: "start" }});
+        }}
+        </script>
+        """,
+        height=0,
+    )
+
+
+def _start_progress_test_action(student_id: int, test_type: str, test_mode: str, test_count: int) -> bool:
+    ok, payload = dbs.build_progress_test(student_id, test_type, test_mode, test_count)
+    if not ok:
+        st.warning(payload)
+        return False
+
+    st.session_state.pop("student_test_result", None)
+    st.session_state["student_test_payload"] = payload
+    st.session_state["student_test_source_label"] = f"学习进度检测：{test_type}"
+    _set_focus_section("vocab_test")
+    return True
+
+
+def _start_book_test_action(
+    student_id: int,
+    book_id: int,
+    book_label: str,
+    unit_ids: list[int] | None,
+    test_mode: str,
+    test_count: int,
+) -> bool:
+    if not book_id:
+        st.warning("当前任务还没有可用的词汇书入口，请先联系老师检查词汇书配置。")
+        return False
+
+    ok, payload = dbs.build_book_test(
+        student_id,
+        book_id,
+        unit_ids or [],
+        test_mode,
+        test_count,
+    )
+    if not ok:
+        st.warning(payload)
+        return False
+
+    st.session_state.pop("student_test_result", None)
+    st.session_state["student_test_payload"] = payload
+    scope = "指定单元" if unit_ids else "整本词汇书"
+    st.session_state["student_test_source_label"] = f"词汇书检测：{book_label} / {scope}"
+    _set_focus_section("vocab_test")
+    return True
+
+
+def _run_task_action(student_id: int, task_card: dict) -> bool:
+    action_type = task_card.get("action_type") or "focus_section"
+    action_params = task_card.get("action_params") or {}
+    target_section = task_card.get("target_section") or "task_pool"
+
+    if action_type == "start_initial_diagnosis":
+        st.session_state["student_diagnosis_active"] = True
+        st.session_state["student_diagnosis_step"] = 0
+        st.session_state["student_diagnosis_answers"] = {}
+        _set_focus_section("initial_diagnosis")
+        return True
+
+    if action_type == "start_progress_test":
+        return _start_progress_test_action(
+            student_id,
+            action_params.get("test_type", "复习检测"),
+            action_params.get("test_mode", "混合模式"),
+            action_params.get("test_count", 25),
+        )
+
+    if action_type == "start_book_test":
+        return _start_book_test_action(
+            student_id,
+            action_params.get("book_id"),
+            action_params.get("book_label", "当前词汇书"),
+            action_params.get("unit_ids", []),
+            action_params.get("test_mode", "混合模式"),
+            action_params.get("test_count", 25),
+        )
+
+    if action_type == "open_lesson_detail":
+        lesson_id = action_params.get("lesson_id")
+        if lesson_id:
+            st.session_state["student_auto_open_lesson_id"] = lesson_id
+        _set_focus_section("recent_lessons")
+        return True
+
+    if action_type == "open_learned_words_dialog":
+        st.session_state["student_auto_open_learned_words_dialog"] = True
+        _set_focus_section("learned_words")
+        return True
+
+    _set_focus_section(target_section)
+    return True
 
 
 def _render_test_feedback_blocks(results):
@@ -132,8 +249,9 @@ def _render_logged_in_header(student):
                 "student_test_payload",
                 "student_test_result",
                 "student_home_focus_section",
-                "student_diagnosis_runtime_result",
-                "student_diagnosis_storage_warning",
+                "student_pending_scroll_section",
+                "student_auto_open_lesson_id",
+                "student_auto_open_learned_words_dialog",
             ]:
                 st.session_state.pop(key, None)
             st.rerun()
@@ -248,28 +366,14 @@ def _render_welcome_section(home_data: dict):
 def _render_diagnosis_summary_card(home_data: dict):
     diagnosis = home_data.get("diagnosis_summary", {})
     if not diagnosis.get("has_diagnosis"):
-        runtime_result = st.session_state.get("student_diagnosis_runtime_result")
-        if runtime_result:
-            diagnosis = {
-                "has_diagnosis": True,
-                "title_label": runtime_result.get("title_label", ""),
-                "stage_label": runtime_result.get("stage_label", ""),
-                "growth_focus": runtime_result.get("growth_focus", ""),
-                "suggested_track": runtime_result.get("suggested_track", ""),
-                "vocab_band": runtime_result.get("vocab_band", ""),
-                "reading_profile": runtime_result.get("reading_profile", ""),
-                "grammar_gap": runtime_result.get("grammar_gap", ""),
-                "writing_profile": runtime_result.get("writing_profile", ""),
-            }
-        else:
-            return
+        return
 
     st.markdown("## 当前诊断结果")
     st.markdown(
         f"""
         <div class="student-home-card">
             <div class="student-home-kicker">你的当前起点</div>
-            <div class="student-home-task-title">{diagnosis.get("title_label", "")}｜{diagnosis.get("stage_label", "")}</div>
+            <div class="student-home-task-title">{diagnosis.get("title_label", "")} ｜ {diagnosis.get("stage_label", "")}</div>
             <p class="student-home-subtitle">{diagnosis.get("growth_focus", "")}</p>
             <div class="student-diagnosis-grid">
                 <div class="student-diagnosis-mini-card">
@@ -295,13 +399,8 @@ def _render_diagnosis_summary_card(home_data: dict):
     )
     if st.button("查看我的成长画像", key="jump_to_profile_page", use_container_width=True):
         st.session_state["student_home_focus_section"] = "profile_page"
-    storage_warning = st.session_state.get("student_diagnosis_storage_warning")
-    if storage_warning:
-        st.warning(storage_warning)
-
 
 def _render_primary_task_section(home_data: dict):
-    primary_target = home_data["current_task_cards"][0]["target_section"]
     button_key = f"student_home_start_today_{home_data['student_name']}"
 
     st.markdown(
@@ -316,7 +415,8 @@ def _render_primary_task_section(home_data: dict):
         unsafe_allow_html=True,
     )
     if st.button("开始今天的成长之旅", key=button_key, type="primary", use_container_width=True):
-        st.session_state["student_home_focus_section"] = primary_target
+        _set_focus_section("task_pool")
+        st.rerun()
 
 
 def _render_light_status_section(home_data: dict):
@@ -334,7 +434,9 @@ def _render_light_status_section(home_data: dict):
 
 
 def _render_task_pool_section(home_data: dict):
+    _render_section_anchor("task_pool")
     st.markdown("## 学习任务池")
+    _render_section_focus_badge("task_pool")
     current_cards = home_data.get("current_task_cards", [])
     history_cards = home_data.get("history_task_cards", [])
 
@@ -357,8 +459,10 @@ def _render_task_pool_section(home_data: dict):
                     """,
                     unsafe_allow_html=True,
                 )
-                if st.button("查看这一项", key=f"student_current_task_{index}", use_container_width=True):
-                    st.session_state["student_home_focus_section"] = card["target_section"]
+                button_label = "开始这一项" if card.get("action_type") != "focus_section" else "查看这一项"
+                if st.button(button_label, key=f"student_current_task_{index}", use_container_width=True):
+                    if _run_task_action(st.session_state["student_login"]["id"], card):
+                        st.rerun()
 
     st.markdown("### 历史内容池")
     if not history_cards:
@@ -380,7 +484,8 @@ def _render_task_pool_section(home_data: dict):
                 unsafe_allow_html=True,
             )
             if st.button("前往回看", key=f"student_history_task_{index}", use_container_width=True):
-                st.session_state["student_home_focus_section"] = card["target_section"]
+                if _run_task_action(st.session_state["student_login"]["id"], card):
+                    st.rerun()
 
 
 def _render_focus_hint():
@@ -447,31 +552,21 @@ def _render_diagnosis_result(result: dict):
 
 
 def _render_profile_page(home_data: dict):
+    _render_section_anchor("profile_page")
     st.header("我的成长画像")
     _render_section_focus_badge("profile_page")
 
     diagnosis = home_data.get("diagnosis_summary", {})
     if not diagnosis.get("has_diagnosis"):
-        runtime_result = st.session_state.get("student_diagnosis_runtime_result")
-        if runtime_result:
-            diagnosis = {
-                "has_diagnosis": True,
-                "title_label": runtime_result.get("title_label", ""),
-                "stage_label": runtime_result.get("stage_label", ""),
-                "growth_focus": runtime_result.get("growth_focus", ""),
-                "suggested_track": runtime_result.get("suggested_track", ""),
-                "dimensions": runtime_result.get("dimensions", {}),
-            }
-        else:
-            st.info("完成首次诊断后，这里会展示更完整的成长画像。")
-            return
+        st.info("完成首次诊断后，这里会展示更完整的成长画像。")
+        return
 
     dimensions = diagnosis.get("dimensions", {}) or {}
     st.markdown(
         f"""
         <div class="student-home-card">
             <div class="student-home-kicker">当前画像总览</div>
-            <div class="student-home-task-title">{diagnosis.get("title_label", "")}｜{diagnosis.get("stage_label", "")}</div>
+            <div class="student-home-task-title">{diagnosis.get("title_label", "")} ｜ {diagnosis.get("stage_label", "")}</div>
             <p class="student-home-subtitle">{diagnosis.get("growth_focus", "")}</p>
             <p class="student-home-task-desc">{diagnosis.get("suggested_track", "")}</p>
         </div>
@@ -508,8 +603,8 @@ def _render_profile_page(home_data: dict):
     for item in [text for text in next_steps if text]:
         st.write(f"- {item}")
 
-
 def _render_initial_diagnosis(student_id: int):
+    _render_section_anchor("initial_diagnosis")
     st.header("首次诊断")
     _render_section_focus_badge("initial_diagnosis")
 
@@ -518,24 +613,10 @@ def _render_initial_diagnosis(student_id: int):
         _render_diagnosis_result(flash_result)
 
     latest_record = dbs.get_latest_diagnosis_record(student_id)
-    runtime_result = st.session_state.get("student_diagnosis_runtime_result")
-    storage_warning = st.session_state.get("student_diagnosis_storage_warning")
     if latest_record and not st.session_state.get("student_diagnosis_active", False):
         st.info("你已经完成过首次诊断，下面是当前保存的诊断结果。")
         _render_diagnosis_result(latest_record)
         if st.button("重新做一次首次诊断", key="restart_initial_diagnosis"):
-            st.session_state["student_diagnosis_active"] = True
-            st.session_state["student_diagnosis_step"] = 0
-            st.session_state["student_diagnosis_answers"] = {}
-            st.rerun()
-        return
-
-    if runtime_result and not st.session_state.get("student_diagnosis_active", False):
-        st.info("这是你当前会话里的诊断结果。完成数据库迁移后，后续结果会自动保存。")
-        if storage_warning:
-            st.warning(storage_warning)
-        _render_diagnosis_result(runtime_result)
-        if st.button("重新做一次首次诊断", key="restart_runtime_initial_diagnosis"):
             st.session_state["student_diagnosis_active"] = True
             st.session_state["student_diagnosis_step"] = 0
             st.session_state["student_diagnosis_answers"] = {}
@@ -596,19 +677,8 @@ def _render_initial_diagnosis(student_id: int):
         result = evaluate_initial_diagnosis(answers_by_module)
         try:
             dbs.save_initial_diagnosis_result(student_id, result)
-            st.session_state.pop("student_diagnosis_runtime_result", None)
-            st.session_state.pop("student_diagnosis_storage_warning", None)
-        except DiagnosisStorageNotReadyError as e:
-            st.session_state["student_diagnosis_runtime_result"] = result
-            st.session_state["student_diagnosis_storage_warning"] = (
-                "诊断结果已生成，但当前环境还没完成数据库迁移，所以暂时只保存在本次会话里。"
-                " 请管理员先执行 `supabase_initial_diagnosis_migration.sql`。"
-            )
-            _clear_diagnosis_session_state()
-            st.session_state["student_diagnosis_flash"] = result
-            st.rerun()
         except Exception as e:
-            st.error("诊断结果暂时没能成功保存，请先确认 Supabase 已执行首次诊断迁移脚本。")
+            st.error("诊断结果保存失败，请联系管理员检查 Supabase 配置。")
             st.exception(e)
             return
 
@@ -619,7 +689,6 @@ def _render_initial_diagnosis(student_id: int):
     if st.button("先暂停这轮诊断", key="pause_initial_diagnosis"):
         _clear_diagnosis_session_state()
         st.rerun()
-
 
 def _sanitize_filename_part(text: str) -> str:
     if not text:
@@ -768,8 +837,13 @@ def _show_learned_words_dialog(student_id: int):
 
 
 def _render_lessons(student_id: int):
+    _render_section_anchor("recent_lessons")
     st.header("我的最近学案")
     _render_section_focus_badge("recent_lessons")
+    auto_open_lesson_id = st.session_state.pop("student_auto_open_lesson_id", None)
+    if auto_open_lesson_id:
+        _show_lesson_detail_dialog(student_id, auto_open_lesson_id)
+
     lessons = dbs.get_student_recent_lessons(student_id, limit=10)
     if not lessons:
         st.info("这里会慢慢收集你的学案练习。完成今天的第一步后，再回来看看。")
@@ -791,8 +865,12 @@ def _render_lessons(student_id: int):
 
 
 def _render_learned_words(student_id: int):
+    _render_section_anchor("learned_words")
     st.header("我的已学单词")
     _render_section_focus_badge("learned_words")
+    if st.session_state.pop("student_auto_open_learned_words_dialog", False):
+        _show_learned_words_dialog(student_id)
+
     summary = dbs.get_student_learned_vocab_summary(student_id)
     total_unique_words = summary.get("total_unique_words", 0)
     lesson_groups = summary.get("lesson_groups", [])
@@ -813,6 +891,7 @@ def _render_learned_words(student_id: int):
 
 
 def _render_progress(student_id: int):
+    _render_section_anchor("progress")
     st.header("我的学习进度")
     _render_section_focus_badge("progress")
     progress_rows = dbs.get_student_book_progress(student_id)
@@ -837,6 +916,7 @@ def _render_progress(student_id: int):
 
 
 def _render_test_history(student_id: int):
+    _render_section_anchor("test_history")
     st.header("我的检测记录")
     _render_section_focus_badge("test_history")
     rows = dbs.get_student_vocab_test_records(student_id, limit=20)
@@ -889,6 +969,7 @@ def _render_test_history(student_id: int):
 
 
 def _render_vocab_test(student_id: int):
+    _render_section_anchor("vocab_test")
     st.header("我的词汇检测")
     _render_section_focus_badge("vocab_test")
     mode_tab1, mode_tab2 = st.tabs(["学习进度检测", "词汇书抽词检测"])
@@ -1060,6 +1141,7 @@ def main():
     _render_progress(student_id)
     st.markdown("---")
     _render_test_history(student_id)
+    _render_focus_scroll()
 
 
 def _show_debug_info():
