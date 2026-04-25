@@ -383,6 +383,12 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
         "reading_profile": profile_payload.get("reading_profile") or (latest_diagnosis or {}).get("reading_profile") or "",
         "grammar_gap": profile_payload.get("grammar_gap") or (latest_diagnosis or {}).get("grammar_gap") or "",
         "writing_profile": profile_payload.get("writing_profile") or (latest_diagnosis or {}).get("writing_profile") or "",
+        "overall_summary": profile_payload.get("overall_summary") or "",
+        "overall_accuracy": profile_payload.get("overall_accuracy"),
+        "priority_module": profile_payload.get("priority_module") or "",
+        "strongest_module": profile_payload.get("strongest_module") or "",
+        "next_actions": profile_payload.get("next_actions") or [],
+        "module_reports": profile_payload.get("module_reports") or {},
         "dimensions": profile_payload.get("dimensions") or {},
     }
     viewmodel = StudentHomeViewModel(
