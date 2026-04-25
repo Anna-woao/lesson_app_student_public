@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from io import BytesIO
-import json
-import os
 import re
 from typing import Any
 
@@ -13,7 +11,6 @@ from openpyxl import load_workbook
 from supabase_client import get_admin_supabase_client, get_supabase_client
 
 
-TEMPLATE_STORE_PATH = os.path.join("database", "vocab_import_templates.json")
 VOCAB_IMPORT_CHUNK_SIZE = 200
 COLUMN_ROLES = [
     "ignore",
@@ -29,7 +26,17 @@ COLUMN_ROLES = [
 
 
 def _get_write_supabase_client():
-    return get_admin_supabase_client() or get_supabase_client()
+    client = get_admin_supabase_client()
+    if client is None:
+        raise RuntimeError("缺少 SUPABASE_SERVICE_ROLE_KEY，无法执行词汇导入。")
+    return client
+
+
+def _get_template_store_client():
+    client = get_admin_supabase_client()
+    if client is None:
+        raise RuntimeError("缺少 SUPABASE_SERVICE_ROLE_KEY，无法读取或保存导入模板。")
+    return client
 
 
 def _fetch_all_rows(query_builder, page_size: int = 1000):
@@ -211,13 +218,17 @@ def guess_mapping(file_bytes: bytes, sheet_name: str | None = None, sample_rows:
 
 
 def _load_templates():
-    if not os.path.exists(TEMPLATE_STORE_PATH):
-        return []
+    client = _get_template_store_client()
     try:
-        with open(TEMPLATE_STORE_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
+        rows = (
+            client.table("vocab_import_templates")
+            .select("name, mapping, sheet_name, data_start_row, updated_at")
+            .order("name", desc=False)
+            .execute()
+        ).data or []
     except Exception:
         return []
+    return rows
 
 
 def list_import_templates():
@@ -225,22 +236,19 @@ def list_import_templates():
 
 
 def save_import_template(name: str, template: dict):
-    os.makedirs(os.path.dirname(TEMPLATE_STORE_PATH), exist_ok=True)
-    templates = _load_templates()
-    cleaned = [item for item in templates if item.get("name") != name]
-    payload = dict(template)
-    payload["name"] = name
-    cleaned.append(payload)
-    with open(TEMPLATE_STORE_PATH, "w", encoding="utf-8") as f:
-        json.dump(cleaned, f, ensure_ascii=False, indent=2)
+    client = _get_template_store_client()
+    payload = {
+        "name": name,
+        "mapping": template.get("mapping", {}),
+        "sheet_name": template.get("sheet_name"),
+        "data_start_row": int(template.get("data_start_row", 1) or 1),
+    }
+    client.table("vocab_import_templates").upsert(payload, on_conflict="name").execute()
 
 
 def delete_import_template(name: str):
-    templates = _load_templates()
-    cleaned = [item for item in templates if item.get("name") != name]
-    os.makedirs(os.path.dirname(TEMPLATE_STORE_PATH), exist_ok=True)
-    with open(TEMPLATE_STORE_PATH, "w", encoding="utf-8") as f:
-        json.dump(cleaned, f, ensure_ascii=False, indent=2)
+    client = _get_template_store_client()
+    client.table("vocab_import_templates").delete().eq("name", name).execute()
 
 
 def _get_template_by_name(name: str):
