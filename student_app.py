@@ -7,6 +7,10 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 import db_student as dbs
+from student_diagnosis_service import (
+    evaluate_initial_diagnosis,
+    get_initial_diagnosis_definition,
+)
 from lesson_html_renderer import build_downloadable_lesson_html, parse_lesson_text_to_parts
 from student_home_viewmodel import build_student_home_viewmodel
 
@@ -15,6 +19,7 @@ st.title("英语辅导系统｜学生端")
 st.write("这里是学生使用的前台页面。")
 
 SECTION_LABELS = {
+    "initial_diagnosis": "首次诊断",
     "recent_lessons": "我的最近学案",
     "learned_words": "我的已学单词",
     "progress": "我的学习进度",
@@ -310,6 +315,112 @@ def _render_section_focus_badge(section_key: str):
     target_section = st.session_state.get("student_home_focus_section")
     if target_section == section_key:
         st.success(f"今天建议先完成这一部分：{SECTION_LABELS.get(section_key, '当前区域')}")
+
+
+def _clear_diagnosis_session_state():
+    for key in [
+        "student_diagnosis_active",
+        "student_diagnosis_step",
+        "student_diagnosis_answers",
+    ]:
+        st.session_state.pop(key, None)
+
+
+def _render_diagnosis_result(result: dict):
+    st.success("首次诊断已完成，下面是你的当前起点。")
+    st.write(result.get("vocab_band", ""))
+    st.write(result.get("reading_profile", ""))
+    st.write(result.get("grammar_gap", ""))
+    st.write(result.get("writing_profile", ""))
+    st.write(result.get("suggested_track", ""))
+    st.caption(result.get("growth_focus", ""))
+
+
+def _render_initial_diagnosis(student_id: int):
+    st.header("首次诊断")
+    _render_section_focus_badge("initial_diagnosis")
+
+    flash_result = st.session_state.pop("student_diagnosis_flash", None)
+    if flash_result:
+        _render_diagnosis_result(flash_result)
+
+    latest_record = dbs.get_latest_diagnosis_record(student_id)
+    if latest_record and not st.session_state.get("student_diagnosis_active", False):
+        st.info("你已经完成过首次诊断，下面是当前保存的诊断结果。")
+        _render_diagnosis_result(latest_record)
+        if st.button("重新做一次首次诊断", key="restart_initial_diagnosis"):
+            st.session_state["student_diagnosis_active"] = True
+            st.session_state["student_diagnosis_step"] = 0
+            st.session_state["student_diagnosis_answers"] = {}
+            st.rerun()
+        return
+
+    if not st.session_state.get("student_diagnosis_active", False):
+        st.info("这是一轮轻量诊断，会帮助系统判断你当前更适合从哪里开始。")
+        if st.button("开始首次诊断", key="start_initial_diagnosis", type="primary"):
+            st.session_state["student_diagnosis_active"] = True
+            st.session_state["student_diagnosis_step"] = 0
+            st.session_state["student_diagnosis_answers"] = {}
+            st.rerun()
+        return
+
+    definition = get_initial_diagnosis_definition()
+    step = st.session_state.get("student_diagnosis_step", 0)
+    answers_by_module = st.session_state.setdefault("student_diagnosis_answers", {})
+    module = definition[step]
+
+    st.progress((step + 1) / len(definition))
+    st.subheader(f"{step + 1}. {module['title']}")
+    st.write(module["intro"])
+    if module.get("passage"):
+        st.markdown(
+            f"""
+            <div style="padding: 14px 16px; border-radius: 10px; background: #f6fbff; border: 1px solid #d9e6f2; margin-bottom: 12px;">
+                {module["passage"]}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    default_answers = answers_by_module.get(module["key"], {})
+    with st.form(f"initial_diagnosis_form_{module['key']}"):
+        current_answers = {}
+        for question in module["questions"]:
+            current_answers[question["id"]] = st.radio(
+                question["prompt"],
+                question["options"],
+                index=question["options"].index(default_answers[question["id"]])
+                if question["id"] in default_answers and default_answers[question["id"]] in question["options"]
+                else 0,
+                key=f"diagnosis_{module['key']}_{question['id']}",
+            )
+
+        button_label = "完成诊断" if step == len(definition) - 1 else "进入下一部分"
+        submitted = st.form_submit_button(button_label)
+
+    if submitted:
+        answers_by_module[module["key"]] = current_answers
+        st.session_state["student_diagnosis_answers"] = answers_by_module
+
+        if step < len(definition) - 1:
+            st.session_state["student_diagnosis_step"] = step + 1
+            st.rerun()
+
+        result = evaluate_initial_diagnosis(answers_by_module)
+        try:
+            dbs.save_initial_diagnosis_result(student_id, result)
+        except Exception as e:
+            st.error("诊断结果暂时没能成功保存，请先确认 Supabase 已执行首次诊断迁移脚本。")
+            st.exception(e)
+            return
+
+        _clear_diagnosis_session_state()
+        st.session_state["student_diagnosis_flash"] = result
+        st.rerun()
+
+    if st.button("先暂停这轮诊断", key="pause_initial_diagnosis"):
+        _clear_diagnosis_session_state()
+        st.rerun()
 
 
 def _sanitize_filename_part(text: str) -> str:
@@ -737,6 +848,8 @@ def main():
     )
     _render_focus_hint()
 
+    _render_initial_diagnosis(student_id)
+    st.markdown("---")
     _render_vocab_test(student_id)
     st.markdown("---")
     _render_lessons(student_id)
