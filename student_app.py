@@ -19,6 +19,7 @@ st.title("英语辅导系统｜学生端")
 st.write("这里是学生使用的前台页面。")
 
 SECTION_LABELS = {
+    "home": "学习首页",
     "task_pool": "学习任务池",
     "initial_diagnosis": "首次诊断",
     "profile_page": "我的成长画像",
@@ -29,32 +30,49 @@ SECTION_LABELS = {
     "test_history": "我的检测记录",
 }
 
+SECTION_TO_PAGE = {
+    "home": "home",
+    "task_pool": "home",
+    "profile_page": "profile_page",
+    "initial_diagnosis": "initial_diagnosis",
+    "vocab_test": "vocab_test",
+    "recent_lessons": "recent_lessons",
+    "learned_words": "learned_words",
+    "progress": "progress",
+    "test_history": "test_history",
+}
+
+NAV_ITEMS = [
+    ("home", "学习首页"),
+    ("initial_diagnosis", "首次诊断"),
+    ("vocab_test", "词汇检测"),
+    ("recent_lessons", "最近学案"),
+    ("learned_words", "已学单词"),
+    ("progress", "学习进度"),
+    ("test_history", "检测记录"),
+    ("profile_page", "成长画像"),
+]
+
 
 def _render_section_anchor(section_key: str):
     st.markdown(f'<div id="section-{section_key}"></div>', unsafe_allow_html=True)
 
 
+def _set_current_page(page_key: str, focus_section: str | None = None):
+    st.session_state["student_current_page"] = page_key
+    if focus_section:
+        st.session_state["student_home_focus_section"] = focus_section
+    elif page_key != "home":
+        st.session_state.pop("student_home_focus_section", None)
+
+
 def _set_focus_section(section_key: str):
-    st.session_state["student_home_focus_section"] = section_key
-    st.session_state["student_pending_scroll_section"] = section_key
+    page_key = SECTION_TO_PAGE.get(section_key, "home")
+    _set_current_page(page_key, focus_section=section_key)
 
 
 def _render_focus_scroll():
-    target_section = st.session_state.pop("student_pending_scroll_section", None)
-    if not target_section:
-        return
-
-    components.html(
-        f"""
-        <script>
-        const target = window.parent.document.getElementById("section-{target_section}");
-        if (target) {{
-            target.scrollIntoView({{ behavior: "smooth", block: "start" }});
-        }}
-        </script>
-        """,
-        height=0,
-    )
+    return
 
 
 def _start_progress_test_action(student_id: int, test_type: str, test_mode: str, test_count: int) -> bool:
@@ -231,6 +249,8 @@ def _render_login():
         return None
 
     st.session_state["student_login"] = student
+    st.session_state["student_current_page"] = "home"
+    st.session_state["student_home_focus_section"] = "task_pool"
     st.session_state.pop("student_test_payload", None)
     st.session_state.pop("student_test_result", None)
     st.rerun()
@@ -248,8 +268,8 @@ def _render_logged_in_header(student):
                 "student_login",
                 "student_test_payload",
                 "student_test_result",
+                "student_current_page",
                 "student_home_focus_section",
-                "student_pending_scroll_section",
                 "student_auto_open_lesson_id",
                 "student_auto_open_learned_words_dialog",
             ]:
@@ -261,6 +281,19 @@ def _render_dashboard_styles():
     st.markdown(
         """
         <style>
+        .student-nav-shell {
+            margin: 6px 0 18px 0;
+            padding: 12px 14px;
+            border: 1px solid #d9e6f2;
+            border-radius: 18px;
+            background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+            box-shadow: 0 8px 22px rgba(33, 76, 110, 0.06);
+        }
+        .student-nav-title {
+            color: #486581;
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
         .student-home-card {
             border: 1px solid #d9e6f2;
             border-radius: 18px;
@@ -333,10 +366,31 @@ def _render_dashboard_styles():
             font-size: 15px;
             line-height: 1.5;
         }
+        div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="secondary"] {
+            border-radius: 999px;
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
+
+
+def _render_top_navigation():
+    current_page = st.session_state.get("student_current_page", "home")
+    st.markdown(
+        """
+        <div class="student-nav-shell">
+            <div class="student-nav-title">学习导航</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    columns = st.columns(len(NAV_ITEMS))
+    for column, (page_key, label) in zip(columns, NAV_ITEMS):
+        with column:
+            button_type = "primary" if current_page == page_key else "secondary"
+            if st.button(label, key=f"student_nav_{page_key}", type=button_type, use_container_width=True):
+                _set_current_page(page_key, focus_section="task_pool" if page_key == "home" else None)
 
 
 def _render_welcome_section(home_data: dict):
@@ -398,7 +452,7 @@ def _render_diagnosis_summary_card(home_data: dict):
         unsafe_allow_html=True,
     )
     if st.button("查看我的成长画像", key="jump_to_profile_page", use_container_width=True):
-        st.session_state["student_home_focus_section"] = "profile_page"
+        _set_current_page("profile_page")
 
 def _render_primary_task_section(home_data: dict):
     button_key = f"student_home_start_today_{home_data['student_name']}"
@@ -486,6 +540,9 @@ def _render_task_pool_section(home_data: dict):
 
 
 def _render_focus_hint():
+    if st.session_state.get("student_current_page", "home") != "home":
+        return
+
     target_section = st.session_state.get("student_home_focus_section")
     if not target_section:
         return
@@ -495,8 +552,11 @@ def _render_focus_hint():
 
 
 def _render_section_focus_badge(section_key: str):
+    current_page = st.session_state.get("student_current_page", "home")
     target_section = st.session_state.get("student_home_focus_section")
-    if target_section == section_key:
+    if current_page == SECTION_TO_PAGE.get(section_key, section_key) and (
+        target_section == section_key or current_page == section_key
+    ):
         st.success(f"今天建议先完成这一部分：{SECTION_LABELS.get(section_key, '当前区域')}")
 
 
@@ -1088,17 +1148,8 @@ def _render_vocab_test(student_id: int):
         st.rerun()
 
 
-def main():
-    student = st.session_state.get("student_login")
-    if not student:
-        _render_login()
-        return
-
-    student_id = student["id"]
-    _render_logged_in_header(student)
-    _render_dashboard_styles()
-
-    home_data = build_student_home_viewmodel(student)
+def _render_home_page(home_data: dict):
+    _set_current_page("home", focus_section=st.session_state.get("student_home_focus_section") or "task_pool")
     _render_welcome_section(home_data)
     _render_diagnosis_summary_card(home_data)
 
@@ -1125,20 +1176,39 @@ def main():
     )
     _render_focus_hint()
 
-    _render_profile_page(home_data)
-    st.markdown("---")
-    _render_initial_diagnosis(student_id)
-    st.markdown("---")
-    _render_vocab_test(student_id)
-    st.markdown("---")
-    _render_lessons(student_id)
-    st.markdown("---")
-    _render_learned_words(student_id)
-    st.markdown("---")
-    _render_progress(student_id)
-    st.markdown("---")
-    _render_test_history(student_id)
-    _render_focus_scroll()
+
+def main():
+    student = st.session_state.get("student_login")
+    if not student:
+        _render_login()
+        return
+
+    student_id = student["id"]
+    _render_logged_in_header(student)
+    _render_dashboard_styles()
+    _render_top_navigation()
+
+    home_data = build_student_home_viewmodel(student)
+    current_page = st.session_state.get("student_current_page", "home")
+
+    if current_page == "home":
+        _render_home_page(home_data)
+    elif current_page == "profile_page":
+        _render_profile_page(home_data)
+    elif current_page == "initial_diagnosis":
+        _render_initial_diagnosis(student_id)
+    elif current_page == "vocab_test":
+        _render_vocab_test(student_id)
+    elif current_page == "recent_lessons":
+        _render_lessons(student_id)
+    elif current_page == "learned_words":
+        _render_learned_words(student_id)
+    elif current_page == "progress":
+        _render_progress(student_id)
+    elif current_page == "test_history":
+        _render_test_history(student_id)
+    else:
+        _render_home_page(home_data)
 
 
 def _show_debug_info():
