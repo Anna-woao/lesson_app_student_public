@@ -5,15 +5,22 @@ import streamlit as st
 from supabase import create_client, Client
 
 
-@st.cache_resource(show_spinner=False)
-def get_supabase_client() -> Client:
+def _read_secret_value(name: str) -> str:
     try:
         secrets_dict = dict(st.secrets)
     except Exception:
         secrets_dict = {}
+    return (secrets_dict.get(name) or os.getenv(name) or "").strip()
 
-    url = (secrets_dict.get("SUPABASE_URL") or os.getenv("SUPABASE_URL") or "").strip()
-    key = (secrets_dict.get("SUPABASE_PUBLISHABLE_KEY") or os.getenv("SUPABASE_PUBLISHABLE_KEY") or "").strip()
+
+def has_admin_supabase_client() -> bool:
+    return bool(_read_secret_value("SUPABASE_URL") and _read_secret_value("SUPABASE_SERVICE_ROLE_KEY"))
+
+
+@st.cache_resource(show_spinner=False)
+def get_supabase_client() -> Client:
+    url = _read_secret_value("SUPABASE_URL")
+    key = _read_secret_value("SUPABASE_PUBLISHABLE_KEY")
 
     if not url:
         raise RuntimeError("缺少 SUPABASE_URL。请检查 .streamlit/secrets.toml 或 Streamlit Cloud Secrets。")
@@ -26,13 +33,8 @@ def get_supabase_client() -> Client:
 
 @st.cache_resource(show_spinner=False)
 def get_admin_supabase_client() -> Client | None:
-    try:
-        secrets_dict = dict(st.secrets)
-    except Exception:
-        secrets_dict = {}
-
-    url = (secrets_dict.get("SUPABASE_URL") or os.getenv("SUPABASE_URL") or "").strip()
-    key = (secrets_dict.get("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    url = _read_secret_value("SUPABASE_URL")
+    key = _read_secret_value("SUPABASE_SERVICE_ROLE_KEY")
 
     if not url or not key:
         return None
