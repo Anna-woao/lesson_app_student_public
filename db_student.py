@@ -184,7 +184,7 @@ def update_student_login_account(student_id: int, login_account: str, login_pass
     if not account:
         return False, "账号不能为空。"
 
-    supabase = get_supabase_client()
+    supabase = _get_admin_supabase_client_required()
     duplicate_resp = (
         supabase.table("students")
         .select("id")
