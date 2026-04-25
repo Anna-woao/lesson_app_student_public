@@ -22,3 +22,19 @@ def get_supabase_client() -> Client:
         raise RuntimeError("缺少 SUPABASE_PUBLISHABLE_KEY。请检查 .streamlit/secrets.toml 或 Streamlit Cloud Secrets。")
 
     return create_client(url, key)
+
+
+@st.cache_resource(show_spinner=False)
+def get_admin_supabase_client() -> Client | None:
+    try:
+        secrets_dict = dict(st.secrets)
+    except Exception:
+        secrets_dict = {}
+
+    url = (secrets_dict.get("SUPABASE_URL") or os.getenv("SUPABASE_URL") or "").strip()
+    key = (secrets_dict.get("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+
+    if not url or not key:
+        return None
+
+    return create_client(url, key)
