@@ -1,9 +1,11 @@
 """学生端入口（含词汇检测作答区）"""
 
 from html import escape
+import re
 import streamlit as st
 import streamlit.components.v1 as components
 import db_student as dbs
+from lesson_html_renderer import build_downloadable_lesson_html, parse_lesson_text_to_parts
 
 st.set_page_config(page_title="英语辅导系统｜学生端", layout="wide")
 st.title("英语辅导系统｜学生端")
@@ -139,6 +141,32 @@ def _render_logged_in_header(student):
             st.rerun()
 
 
+def _sanitize_filename_part(text: str) -> str:
+    if not text:
+        return ""
+    text = str(text).strip()
+    text = re.sub(r'[\\/:*?"<>|]+', "_", text)
+    text = re.sub(r"\s+", "_", text)
+    return text.strip("_")
+
+
+def _build_lesson_html_filename(student: dict, lesson: dict) -> str:
+    student_name = _sanitize_filename_part(student.get("name", "学生"))
+    lesson_id = _sanitize_filename_part(lesson.get("id") or lesson.get("lesson_id") or "")
+    lesson_type = _sanitize_filename_part(lesson.get("lesson_type") or "学案")
+    topic = _sanitize_filename_part(lesson.get("topic") or "")
+    parts = [student_name, lesson_type, topic, f"lesson_{lesson_id}" if lesson_id else ""]
+    file_stem = "_".join([part for part in parts if part]) or "英语学案"
+    return f"{file_stem}.html"
+
+
+def _build_lesson_download_html(lesson: dict) -> str:
+    parts = parse_lesson_text_to_parts(lesson.get("content", ""))
+    title_bits = [str(lesson.get("lesson_type") or "英语学案"), str(lesson.get("topic") or "")]
+    title = " - ".join([bit for bit in title_bits if bit])
+    return build_downloadable_lesson_html(parts, title=title or "英语学案")
+
+
 def _looks_like_html(content: str) -> bool:
     lowered = (content or "").lower()
     return "<html" in lowered or "<body" in lowered or "<!doctype" in lowered
@@ -150,10 +178,12 @@ def _render_lesson_content(detail):
         st.info("这份学案暂时没有内容。")
         return
 
+    html_doc = content if _looks_like_html(content) else _build_lesson_download_html(detail)
+
     st.download_button(
         "下载网页 HTML（可用浏览器打印 PDF）",
-        data=content,
-        file_name=f"lesson_{detail.get('id', 'content')}.html",
+        data=html_doc,
+        file_name=_build_lesson_html_filename(st.session_state.get("student_login", {}), detail),
         mime="text/html",
         key=f"download_lesson_html_{detail.get('id')}",
     )
@@ -163,7 +193,7 @@ def _render_lesson_content(detail):
         if _looks_like_html(content):
             components.html(content, height=650, scrolling=True)
         else:
-            st.markdown(content)
+            components.html(html_doc, height=650, scrolling=True)
     with text_tab:
         st.text_area(
             "完整学案内容",
@@ -477,24 +507,29 @@ def _render_vocab_test(student_id: int):
 
     st.markdown("---")
     st.subheader("开始作答")
-    user_answers = {}
+    st.caption("请认真完成本次检测，填写完成后统一提交。")
 
-    for idx, q in enumerate(payload["questions"], start=1):
-        st.markdown(f"### 第 {idx} 题")
-        st.caption(f"本题题型：{q['mode']}")
-        if q["mode"] == "英译中":
-            user_answers[q["vocab_item_id"]] = st.radio(
-                f"请选择 **{q['word']}** 的中文意思：",
-                q["options"],
-                key=f"student_mcq_{q['vocab_item_id']}",
-            )
-        else:
-            user_answers[q["vocab_item_id"]] = st.text_input(
-                f"请根据中文意思写出英文：**{q['meaning']}**",
-                key=f"student_text_{q['vocab_item_id']}",
-            )
+    with st.form("student_vocab_test_form", clear_on_submit=False):
+        user_answers = {}
 
-    if st.button("提交检测", key="submit_student_test"):
+        for idx, q in enumerate(payload["questions"], start=1):
+            st.markdown(f"### 第 {idx} 题")
+            st.caption(f"本题题型：{q['mode']}")
+            if q["mode"] == "英译中":
+                user_answers[q["vocab_item_id"]] = st.radio(
+                    f"请选择 **{q['word']}** 的中文意思：",
+                    q["options"],
+                    key=f"student_mcq_{q['vocab_item_id']}",
+                )
+            else:
+                user_answers[q["vocab_item_id"]] = st.text_input(
+                    f"请根据中文意思写出英文：**{q['meaning']}**",
+                    key=f"student_text_{q['vocab_item_id']}",
+                )
+
+        submitted = st.form_submit_button("提交检测")
+
+    if submitted:
         result = dbs.submit_student_test(
             student_id=student_id,
             payload=payload,
