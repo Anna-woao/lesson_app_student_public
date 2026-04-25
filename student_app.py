@@ -1230,9 +1230,6 @@ def _render_learned_words(student_id: int):
     _render_section_anchor("learned_words")
     st.header("我的已学单词")
     _render_section_focus_badge("learned_words")
-    if st.session_state.pop("student_auto_open_learned_words_dialog", False):
-        _show_learned_words_dialog(student_id)
-
     summary = dbs.get_student_learned_vocab_summary(student_id)
     total_unique_words = summary.get("total_unique_words", 0)
     lesson_groups = summary.get("lesson_groups", [])
@@ -1241,15 +1238,47 @@ def _render_learned_words(student_id: int):
         st.info("这里会记录你已经接触过的词汇内容。")
         return
 
-    col1, col2 = st.columns([1, 3])
+    if st.session_state.pop("student_auto_open_learned_words_dialog", False):
+        _show_learned_words_dialog(student_id)
+
+    st.markdown(
+        f"""
+        <div class="student-home-card">
+            <div class="student-home-kicker">已学单词模块说明</div>
+            <div class="student-home-task-title">这里只回看已经进入学习记录的词汇积累</div>
+            <p class="student-home-task-desc">
+                当前共记录 {total_unique_words} 个已学单词，关联 {len(lesson_groups)} 份学案。
+                这个页面只负责查看积累，不承接检测或学案练习。
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("已学单词总数", total_unique_words)
     with col2:
-        st.caption(f"共关联 {len(lesson_groups)} 份学案。")
-        st.write("主页面先只显示摘要，详细单词列表放到弹窗里查看。")
+        st.metric("关联学案数", len(lesson_groups))
+    with col3:
+        if st.button("查看完整单词清单", key="view_learned_words_dialog", use_container_width=True):
+            _show_learned_words_dialog(student_id)
 
-    if st.button("查看按学案分类的已学单词", key="view_learned_words_dialog"):
-        _show_learned_words_dialog(student_id)
+    st.markdown("## 学习积累摘要")
+    preview_groups = lesson_groups[:3]
+    for group in preview_groups:
+        lesson_label = group.get("topic", "") or group.get("lesson_type", "") or "未命名学案"
+        st.markdown(
+            f"""
+            <div class="student-home-card">
+                <div class="student-home-kicker">关联学案</div>
+                <div class="student-home-task-title">{lesson_label}</div>
+                <p class="student-home-subtitle">词汇数量：{group.get("word_count", 0)}</p>
+                <p class="student-home-task-desc">创建时间：{group.get("created_at", "") or '暂无记录'}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def _render_progress(student_id: int):
@@ -1325,6 +1354,30 @@ def _render_test_history(student_id: int):
         st.info("完成第一次检测后，这里会留下你每一次练习的成长轨迹。")
         return
 
+    latest_row = rows[0]
+    st.markdown(
+        f"""
+        <div class="student-home-card">
+            <div class="student-home-kicker">检测记录模块说明</div>
+            <div class="student-home-task-title">这里只回看历史检测结果和答题反馈</div>
+            <p class="student-home-task-desc">
+                当前共记录 {len(rows)} 次检测；
+                最近一次成绩 {latest_row[8]} / {latest_row[7]}，正确率 {latest_row[9]:.0%}。
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    overview_col1, overview_col2, overview_col3 = st.columns(3)
+    with overview_col1:
+        st.metric("累计检测次数", len(rows))
+    with overview_col2:
+        st.metric("最近一次得分", f"{latest_row[8]} / {latest_row[7]}")
+    with overview_col3:
+        st.metric("最近一次正确率", f"{latest_row[9]:.0%}")
+
+    st.markdown("## 检测记录列表")
     for row in rows:
         (
             test_record_id,
@@ -1343,17 +1396,25 @@ def _render_test_history(student_id: int):
         ) = row
         retry_tag = " | 错词重测" if is_wrong_retry_round else ""
         sync_tag = "已同步到学习进度" if is_synced_to_progress else "仅记录未同步"
-        st.markdown(f"### 检测记录 ID：{test_record_id}{retry_tag}")
-        st.write(f"来源：{source_label}")
-        st.write(f"检测类型：{test_type}")
-        st.write(f"作答方式：{test_mode}")
-        st.write(f"得分：{correct_count} / {total_count}（正确率：{accuracy:.0%}）")
-        st.write(f"记录时间：{created_at}")
-        st.write(f"同步状态：{sync_tag}")
+        st.markdown(
+            f"""
+            <div class="student-home-card">
+                <div class="student-home-kicker">检测记录 ID：{test_record_id}{retry_tag}</div>
+                <div class="student-home-task-title">{source_label or '词汇检测记录'}</div>
+                <p class="student-home-subtitle">检测类型：{test_type} ｜ 作答方式：{test_mode}</p>
+                <p class="student-home-task-desc">
+                    得分：{correct_count} / {total_count}（正确率：{accuracy:.0%}）<br/>
+                    记录时间：{created_at}<br/>
+                    同步状态：{sync_tag}
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         item_rows = dbs.get_vocab_test_record_items(test_record_id)
 
-        with st.expander("查看本次检测反馈", expanded=False):
+        with st.expander(f"查看记录 {test_record_id} 的答题反馈", expanded=False):
             results = []
             for item in item_rows:
                 vocab_item_id, word, meaning, mode, user_answer, is_correct = item
