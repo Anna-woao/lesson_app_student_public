@@ -732,6 +732,12 @@ def save_initial_diagnosis_result(student_id: int, diagnosis_result: dict):
             "reading_profile": diagnosis_result.get("reading_profile"),
             "grammar_gap": diagnosis_result.get("grammar_gap"),
             "writing_profile": diagnosis_result.get("writing_profile"),
+            "module_reports": diagnosis_result.get("module_reports", {}),
+            "priority_module": diagnosis_result.get("priority_module"),
+            "strongest_module": diagnosis_result.get("strongest_module"),
+            "overall_accuracy": diagnosis_result.get("overall_accuracy"),
+            "overall_summary": diagnosis_result.get("overall_summary"),
+            "next_actions": diagnosis_result.get("next_actions", []),
         },
     }
     snapshot_resp = supabase.table("student_profile_snapshots").insert(snapshot_payload).execute()
@@ -1019,17 +1025,26 @@ def _sync_test_results_to_progress(student_id: int, payload: dict, results: List
 
 def build_progress_test(student_id: int, test_type: str, test_mode: str, test_count: int):
     supabase = get_supabase_client()
-    status_filter = "learning" if test_type == "新词检测" else "review"
-    rows = (
-        supabase.table("student_vocab_progress")
-        .select("vocab_item_id, first_source_book_id, first_source_unit_id, status")
-        .eq("student_id", student_id)
-        .eq("status", status_filter)
-        .limit(500)
-        .execute()
-    ).data or []
+    if test_type == "\u65b0\u8bcd\u68c0\u6d4b":
+        rows = (
+            supabase.table("student_vocab_progress")
+            .select("vocab_item_id, first_source_book_id, first_source_unit_id, status")
+            .eq("student_id", student_id)
+            .eq("status", "learning")
+            .limit(500)
+            .execute()
+        ).data or []
+    else:
+        rows = (
+            supabase.table("student_vocab_progress")
+            .select("vocab_item_id, first_source_book_id, first_source_unit_id, status, last_review_time")
+            .eq("student_id", student_id)
+            .order("last_review_time", desc=False)
+            .limit(1000)
+            .execute()
+        ).data or []
     if not rows:
-        return False, "当前没有可用的学习进度检测词。"
+        return False, "\u5f53\u524d\u6ca1\u6709\u53ef\u7528\u7684\u5b66\u4e60\u8fdb\u5ea6\u68c0\u6d4b\u8bcd\u3002"
     random.shuffle(rows)
     rows = rows[:test_count]
 
@@ -1044,7 +1059,6 @@ def build_progress_test(student_id: int, test_type: str, test_mode: str, test_co
         "questions": questions,
     }
     return True, payload
-
 
 def build_book_test(
     student_id: int,
@@ -1144,6 +1158,8 @@ def _build_questions_from_vocab_map(vocab_map, rows, test_mode: str):
             "word": word,
             "meaning": meaning,
             "mode": one_mode,
+            "source_book_id": row.get("book_id") or row.get("first_source_book_id"),
+            "source_unit_id": row.get("unit_id") or row.get("first_source_unit_id"),
         }
 
         if one_mode == "英译中":
@@ -1167,7 +1183,7 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
         vocab_item_id = q["vocab_item_id"]
         mode = q["mode"]
         user_answer = user_answers.get(vocab_item_id, "")
-        if mode == "英译中":
+        if mode == "???":
             is_correct = (user_answer or "").strip() == (q["meaning"] or "").strip()
         else:
             is_correct = (user_answer or "").strip().lower() == (q["word"] or "").strip().lower()
@@ -1176,20 +1192,23 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
             score += 1
 
         results.append({
-            "vocab_item_id": vocab_item_id,
+            "vocab_item_id": q["vocab_item_id"],
             "word": q["word"],
             "meaning": q["meaning"],
             "mode": mode,
             "user_answer": user_answer,
             "is_correct": is_correct,
+            "source_book_id": q.get("source_book_id"),
+            "source_unit_id": q.get("source_unit_id"),
         })
 
     accuracy = (score / total) if total else 0.0
 
     test_record_id = None
     persistence_error = None
+    sync_error = None
     try:
-        supabase = get_supabase_client()
+        supabase = get_admin_supabase_client() or get_supabase_client()
         record_resp = (
             supabase.table("vocab_test_records")
             .insert({
@@ -1226,6 +1245,18 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
                 })
             if item_payloads:
                 supabase.table("vocab_test_record_items").insert(item_payloads).execute()
+
+        try:
+            _sync_test_results_to_progress(student_id, payload, results)
+            if test_record_id:
+                (
+                    supabase.table("vocab_test_records")
+                    .update({"is_synced_to_progress": True})
+                    .eq("id", test_record_id)
+                    .execute()
+                )
+        except Exception as exc:
+            sync_error = str(exc)
     except Exception as exc:
         persistence_error = str(exc)
 
@@ -1237,4 +1268,6 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
         "test_record_id": test_record_id,
         "persistence_ok": persistence_error is None,
         "persistence_error": persistence_error,
+        "sync_ok": sync_error is None,
+        "sync_error": sync_error,
     }
