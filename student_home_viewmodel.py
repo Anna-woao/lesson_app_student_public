@@ -199,6 +199,8 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
     book_progress = dbs.get_student_book_progress(student_id)
     test_records = dbs.get_student_vocab_test_records(student_id, limit=10)
     activity_dates_raw = dbs.get_student_activity_dates(student_id, days=30)
+    latest_diagnosis = dbs.get_latest_diagnosis_record(student_id)
+    latest_snapshot = dbs.get_latest_profile_snapshot(student_id)
 
     learned_vocab_count = learned_summary.get("total_unique_words", 0)
     latest_accuracy = test_records[0][9] if test_records else None
@@ -207,8 +209,17 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
     has_learned_vocab = learned_vocab_count > 0
     has_review_items = any(row[7] > 0 for row in book_progress)
     has_unfinished_book = any(row[4] > 0 and row[3] < row[4] for row in book_progress)
+    has_diagnosis = latest_diagnosis is not None
 
-    if not has_test_records:
+    if not has_diagnosis:
+        primary_card = StudentTaskCard(
+            title="完成首次诊断",
+            eta="8-12 分钟",
+            description="先用一轮轻量诊断找到更适合你的起点，后面的任务会更贴合你当前状态。",
+            target_section="initial_diagnosis",
+            is_primary=True,
+        )
+    elif not has_test_records:
         primary_card = StudentTaskCard(
             title="完成一次词汇检测",
             eta="10 分钟",
@@ -250,7 +261,7 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     current_task_cards: List[StudentTaskCard] = [primary_card]
-    if has_recent_lessons:
+    if has_diagnosis and has_recent_lessons:
         latest_lesson = recent_lessons[0]
         _append_task_card(
             current_task_cards,
@@ -261,7 +272,7 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
                 target_section="recent_lessons",
             ),
         )
-    if has_review_items:
+    if has_diagnosis and has_review_items:
         _append_task_card(
             current_task_cards,
             StudentTaskCard(
@@ -271,7 +282,7 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
                 target_section="progress",
             ),
         )
-    if has_test_records:
+    if has_diagnosis and has_test_records:
         latest_record = test_records[0]
         _append_task_card(
             current_task_cards,
@@ -299,20 +310,23 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
         active_book_count=sum(1 for row in book_progress if row[4] > 0),
         test_record_count=len(test_records),
     )
+    title_label = (latest_snapshot or {}).get("title_label") or _build_title_label(learned_vocab_count)
+    stage_label = (latest_snapshot or {}).get("stage_label") or _build_stage_label(latest_accuracy)
+    growth_feedback = (latest_snapshot or {}).get("summary_text") or _build_growth_feedback(latest_accuracy)
     viewmodel = StudentHomeViewModel(
         student_name=student.get("name", "同学"),
-        title_label=_build_title_label(learned_vocab_count),
-        stage_label=_build_stage_label(latest_accuracy),
+        title_label=title_label,
+        stage_label=stage_label,
         primary_task=primary_card.title,
         primary_task_eta=primary_card.eta,
         weekly_completion_ratio=_calculate_weekly_completion_ratio(activity_dates, today),
         streak_days=_calculate_streak_days(activity_dates, today),
         unlocked_modules=_build_unlocked_modules(
             has_recent_lessons=has_recent_lessons,
-            has_test_records=has_test_records,
-            has_learned_vocab=has_learned_vocab,
+            has_test_records=has_test_records or has_diagnosis,
+            has_learned_vocab=has_learned_vocab or has_diagnosis,
         ),
-        growth_feedback=_build_growth_feedback(latest_accuracy),
+        growth_feedback=growth_feedback,
         current_task_cards=[asdict(card) for card in current_task_cards],
         history_task_cards=[
             asdict(card)
