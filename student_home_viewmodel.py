@@ -19,6 +19,8 @@ class StudentTaskCard:
     eta: str
     description: str
     target_section: str
+    action_type: str = "focus_section"
+    action_params: Dict[str, Any] | None = None
     is_primary: bool = False
 
 
@@ -144,6 +146,12 @@ def _append_task_card(cards: List[StudentTaskCard], card: StudentTaskCard) -> No
         cards.append(card)
 
 
+def _build_book_label(book_row: Any) -> str:
+    book_name = book_row[1] or "词汇书"
+    volume_name = book_row[2] or ""
+    return f"{book_name} {volume_name}".strip()
+
+
 def _build_history_task_cards(
     recent_lessons: List[Any],
     learned_vocab_count: int,
@@ -159,6 +167,8 @@ def _build_history_task_cards(
                 eta=f"{len(recent_lessons)} 份可回看",
                 description=f"最近一份：{latest_lesson[3] or latest_lesson[1] or '继续回看'}。",
                 target_section="recent_lessons",
+                action_type="open_lesson_detail",
+                action_params={"lesson_id": latest_lesson[0]},
             )
         )
     if learned_vocab_count > 0:
@@ -168,6 +178,7 @@ def _build_history_task_cards(
                 eta=f"{learned_vocab_count} 个已记录",
                 description="这里可以回看已经接触过的词汇和当前积累。",
                 target_section="learned_words",
+                action_type="open_learned_words_dialog",
             )
         )
     if test_records:
@@ -211,6 +222,10 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
     has_review_items = any(row[7] > 0 for row in book_progress)
     has_unfinished_book = any(row[4] > 0 and row[3] < row[4] for row in book_progress)
     has_diagnosis = latest_diagnosis is not None
+    first_unfinished_book = next(
+        (row for row in book_progress if row[4] > 0 and row[3] < row[4]),
+        None,
+    )
 
     if not has_diagnosis:
         primary_card = StudentTaskCard(
@@ -218,30 +233,63 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
             eta="8-12 分钟",
             description="先用一轮轻量诊断找到更适合你的起点，后面的任务会更贴合你当前状态。",
             target_section="initial_diagnosis",
+            action_type="start_initial_diagnosis",
             is_primary=True,
         )
     elif not has_test_records:
-        primary_card = StudentTaskCard(
-            title="完成一次词汇检测",
-            eta="10 分钟",
-            description="先用一次轻量检测找到更适合你的起点。",
-            target_section="vocab_test",
-            is_primary=True,
-        )
+        if first_unfinished_book:
+            primary_card = StudentTaskCard(
+                title="完成一次词汇书检测",
+                eta="10 分钟",
+                description=f"从 { _build_book_label(first_unfinished_book) } 开始一轮检测，更快进入今天的学习状态。",
+                target_section="vocab_test",
+                action_type="start_book_test",
+                action_params={
+                    "book_id": first_unfinished_book[0],
+                    "book_label": _build_book_label(first_unfinished_book),
+                    "unit_ids": [],
+                    "test_mode": "混合模式",
+                    "test_count": 25,
+                },
+                is_primary=True,
+            )
+        else:
+            primary_card = StudentTaskCard(
+                title="完成一次词汇检测",
+                eta="10 分钟",
+                description="先进入词汇检测，开始今天的学习节奏。",
+                target_section="vocab_test",
+                action_type="focus_section",
+                is_primary=True,
+            )
     elif has_review_items:
         primary_card = StudentTaskCard(
-            title="完成今日复习巩固",
+            title="完成一次复习检测",
             eta="15 分钟",
-            description="把需要回看的内容先稳一稳，今天会更轻松。",
-            target_section="progress",
+            description="直接开始一轮复习检测，把今天需要巩固的内容先稳住。",
+            target_section="vocab_test",
+            action_type="start_progress_test",
+            action_params={
+                "test_type": "复习检测",
+                "test_mode": "混合模式",
+                "test_count": 25,
+            },
             is_primary=True,
         )
     elif has_unfinished_book:
         primary_card = StudentTaskCard(
-            title="继续当前词书训练",
+            title="开始当前词汇书检测",
             eta="20 分钟",
-            description="顺着当前进度继续推进，保持今天的学习节奏。",
-            target_section="progress",
+            description=f"从 { _build_book_label(first_unfinished_book) } 直接开始，先完成今天这一轮词汇任务。",
+            target_section="vocab_test",
+            action_type="start_book_test",
+            action_params={
+                "book_id": first_unfinished_book[0],
+                "book_label": _build_book_label(first_unfinished_book),
+                "unit_ids": [],
+                "test_mode": "混合模式",
+                "test_count": 25,
+            },
             is_primary=True,
         )
     elif has_recent_lessons:
@@ -250,6 +298,8 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
             eta="15 分钟",
             description="把最近一次学案再过一遍，巩固今天最重要的内容。",
             target_section="recent_lessons",
+            action_type="open_lesson_detail",
+            action_params={"lesson_id": recent_lessons[0][0]},
             is_primary=True,
         )
     else:
@@ -271,16 +321,24 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
                 eta="15 分钟",
                 description=f"最近学案：{latest_lesson[3] or latest_lesson[1] or '继续练习'}。",
                 target_section="recent_lessons",
+                action_type="open_lesson_detail",
+                action_params={"lesson_id": latest_lesson[0]},
             ),
         )
     if has_diagnosis and has_review_items:
         _append_task_card(
             current_task_cards,
             StudentTaskCard(
-                title="查看待复习进度",
+                title="开始一轮复习检测",
                 eta="15 分钟",
-                description="先处理需要复习的内容，会更容易看到进步。",
-                target_section="progress",
+                description="把待复习内容直接转成可开始的检测，不用再自己找入口。",
+                target_section="vocab_test",
+                action_type="start_progress_test",
+                action_params={
+                    "test_type": "复习检测",
+                    "test_mode": "混合模式",
+                    "test_count": 25,
+                },
             ),
         )
     if has_diagnosis and has_test_records:
