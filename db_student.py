@@ -560,6 +560,42 @@ def get_student_vocab_test_records(student_id: int, limit: int = 20):
     ]
 
 
+def get_student_activity_dates(student_id: int, days: int = 30):
+    """
+    获取某个学生近一段时间的学习活动日期。
+
+    当前只把以下行为视为学习活动：
+    - lessons.created_at：生成/保存学案
+    - vocab_test_records.created_at：完成词汇检测
+    """
+    supabase = get_supabase_client()
+    lesson_rows = (
+        supabase.table("lessons")
+        .select("created_at")
+        .eq("student_id", student_id)
+        .order("created_at", desc=True)
+        .limit(max(days * 3, 30))
+        .execute()
+    ).data or []
+
+    test_rows = (
+        supabase.table("vocab_test_records")
+        .select("created_at")
+        .eq("student_id", student_id)
+        .order("created_at", desc=True)
+        .limit(max(days * 3, 30))
+        .execute()
+    ).data or []
+
+    activity_dates = set()
+    for row in lesson_rows + test_rows:
+        created_at = row.get("created_at")
+        if created_at:
+            activity_dates.add(str(created_at)[:10])
+
+    return sorted(activity_dates, reverse=True)[:days]
+
+
 def get_vocab_test_record_items(test_record_id: int):
     supabase = get_supabase_client()
     response = (
