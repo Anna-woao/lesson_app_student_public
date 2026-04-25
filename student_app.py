@@ -32,7 +32,7 @@ SECTION_LABELS = {
 
 SECTION_TO_PAGE = {
     "home": "home",
-    "task_pool": "home",
+    "task_pool": "task_pool",
     "profile_page": "profile_page",
     "initial_diagnosis": "initial_diagnosis",
     "vocab_test": "vocab_test",
@@ -118,6 +118,16 @@ def _set_current_page(page_key: str, focus_section: str | None = None):
 def _set_focus_section(section_key: str):
     page_key = SECTION_TO_PAGE.get(section_key, "home")
     _set_current_page(page_key, focus_section=section_key)
+
+
+def _navigate_to_page(page_key: str, focus_section: str | None = None):
+    _set_current_page(page_key, focus_section=focus_section)
+    st.rerun()
+
+
+def _navigate_to_section(section_key: str):
+    _set_focus_section(section_key)
+    st.rerun()
 
 
 def _render_focus_scroll():
@@ -612,7 +622,7 @@ def _render_top_navigation():
         with column:
             button_type = "primary" if current_page == page_key else "secondary"
             if st.button(label, key=f"student_nav_{page_key}", type=button_type, use_container_width=True):
-                _set_current_page(page_key, focus_section="task_pool" if page_key == "home" else None)
+                _navigate_to_page(page_key, focus_section="task_pool" if page_key == "home" else None)
 
 
 def _render_page_hero(current_page: str, home_data: dict):
@@ -657,11 +667,11 @@ def _render_page_quick_actions(current_page: str):
     left, right = st.columns([1, 1])
     with left:
         if st.button("返回学习首页", key=f"back_home_{current_page}", use_container_width=True):
-            _set_current_page("home", focus_section="task_pool")
+            _navigate_to_page("home", focus_section="task_pool")
     with right:
         if current_page != "profile_page":
             if st.button("查看成长画像", key=f"jump_profile_{current_page}", use_container_width=True):
-                _set_current_page("profile_page")
+                _navigate_to_page("profile_page")
 
 
 def _render_welcome_section(home_data: dict):
@@ -723,7 +733,7 @@ def _render_diagnosis_summary_card(home_data: dict):
         unsafe_allow_html=True,
     )
     if st.button("查看我的成长画像", key="jump_to_profile_page", use_container_width=True):
-        _set_current_page("profile_page")
+        _navigate_to_page("profile_page")
 
 def _render_primary_task_section(home_data: dict):
     button_key = f"student_home_start_today_{home_data['student_name']}"
@@ -740,7 +750,7 @@ def _render_primary_task_section(home_data: dict):
         unsafe_allow_html=True,
     )
     if st.button("开始今天的成长之旅", key=button_key, type="primary", use_container_width=True):
-        _set_focus_section("task_pool")
+        _navigate_to_page("task_pool", focus_section="task_pool")
 
 
 def _render_light_status_section(home_data: dict):
@@ -785,7 +795,8 @@ def _render_task_pool_section(home_data: dict):
                 )
                 button_label = "开始这一项" if card.get("action_type") != "focus_section" else "查看这一项"
                 if st.button(button_label, key=f"student_current_task_{index}", use_container_width=True):
-                    _run_task_action(st.session_state["student_login"]["id"], card)
+                    if _run_task_action(st.session_state["student_login"]["id"], card):
+                        st.rerun()
 
     st.markdown("### 历史内容池")
     if not history_cards:
@@ -807,7 +818,8 @@ def _render_task_pool_section(home_data: dict):
                 unsafe_allow_html=True,
             )
             if st.button("前往回看", key=f"student_history_task_{index}", use_container_width=True):
-                _run_task_action(st.session_state["student_login"]["id"], card)
+                if _run_task_action(st.session_state["student_login"]["id"], card):
+                    st.rerun()
 
 
 def _render_focus_hint():
