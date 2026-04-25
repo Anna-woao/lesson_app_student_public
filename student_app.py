@@ -7,6 +7,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 import db_student as dbs
+from db_student import DiagnosisStorageNotReadyError
 from student_diagnosis_service import (
     evaluate_initial_diagnosis,
     get_initial_diagnosis_definition,
@@ -20,6 +21,7 @@ st.write("这里是学生使用的前台页面。")
 
 SECTION_LABELS = {
     "initial_diagnosis": "首次诊断",
+    "profile_page": "我的成长画像",
     "recent_lessons": "我的最近学案",
     "learned_words": "我的已学单词",
     "progress": "我的学习进度",
@@ -130,6 +132,8 @@ def _render_logged_in_header(student):
                 "student_test_payload",
                 "student_test_result",
                 "student_home_focus_section",
+                "student_diagnosis_runtime_result",
+                "student_diagnosis_storage_warning",
             ]:
                 st.session_state.pop(key, None)
             st.rerun()
@@ -244,7 +248,21 @@ def _render_welcome_section(home_data: dict):
 def _render_diagnosis_summary_card(home_data: dict):
     diagnosis = home_data.get("diagnosis_summary", {})
     if not diagnosis.get("has_diagnosis"):
-        return
+        runtime_result = st.session_state.get("student_diagnosis_runtime_result")
+        if runtime_result:
+            diagnosis = {
+                "has_diagnosis": True,
+                "title_label": runtime_result.get("title_label", ""),
+                "stage_label": runtime_result.get("stage_label", ""),
+                "growth_focus": runtime_result.get("growth_focus", ""),
+                "suggested_track": runtime_result.get("suggested_track", ""),
+                "vocab_band": runtime_result.get("vocab_band", ""),
+                "reading_profile": runtime_result.get("reading_profile", ""),
+                "grammar_gap": runtime_result.get("grammar_gap", ""),
+                "writing_profile": runtime_result.get("writing_profile", ""),
+            }
+        else:
+            return
 
     st.markdown("## 当前诊断结果")
     st.markdown(
@@ -275,6 +293,11 @@ def _render_diagnosis_summary_card(home_data: dict):
         """,
         unsafe_allow_html=True,
     )
+    if st.button("查看我的成长画像", key="jump_to_profile_page", use_container_width=True):
+        st.session_state["student_home_focus_section"] = "profile_page"
+    storage_warning = st.session_state.get("student_diagnosis_storage_warning")
+    if storage_warning:
+        st.warning(storage_warning)
 
 
 def _render_primary_task_section(home_data: dict):
@@ -423,6 +446,69 @@ def _render_diagnosis_result(result: dict):
                 st.write(body)
 
 
+def _render_profile_page(home_data: dict):
+    st.header("我的成长画像")
+    _render_section_focus_badge("profile_page")
+
+    diagnosis = home_data.get("diagnosis_summary", {})
+    if not diagnosis.get("has_diagnosis"):
+        runtime_result = st.session_state.get("student_diagnosis_runtime_result")
+        if runtime_result:
+            diagnosis = {
+                "has_diagnosis": True,
+                "title_label": runtime_result.get("title_label", ""),
+                "stage_label": runtime_result.get("stage_label", ""),
+                "growth_focus": runtime_result.get("growth_focus", ""),
+                "suggested_track": runtime_result.get("suggested_track", ""),
+                "dimensions": runtime_result.get("dimensions", {}),
+            }
+        else:
+            st.info("完成首次诊断后，这里会展示更完整的成长画像。")
+            return
+
+    dimensions = diagnosis.get("dimensions", {}) or {}
+    st.markdown(
+        f"""
+        <div class="student-home-card">
+            <div class="student-home-kicker">当前画像总览</div>
+            <div class="student-home-task-title">{diagnosis.get("title_label", "")}｜{diagnosis.get("stage_label", "")}</div>
+            <p class="student-home-subtitle">{diagnosis.get("growth_focus", "")}</p>
+            <p class="student-home-task-desc">{diagnosis.get("suggested_track", "")}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if not dimensions:
+        st.info("当前画像数据还在整理中，稍后会在这里补齐。")
+        return
+
+    st.markdown("### 六维画像")
+    dimension_items = list(dimensions.items())
+    for start in range(0, len(dimension_items), 2):
+        columns = st.columns(2)
+        for column, (title, body) in zip(columns, dimension_items[start:start + 2]):
+            with column:
+                st.markdown(
+                    f"""
+                    <div class="student-diagnosis-mini-card" style="min-height: 180px;">
+                        <div class="student-diagnosis-mini-title">{title}</div>
+                        <div class="student-diagnosis-mini-body">{body}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+    st.markdown("### 下一步建议")
+    next_steps = [
+        diagnosis.get("growth_focus", ""),
+        diagnosis.get("suggested_track", ""),
+        "先把今天的主任务完成，再回来看看有没有新的变化。",
+    ]
+    for item in [text for text in next_steps if text]:
+        st.write(f"- {item}")
+
+
 def _render_initial_diagnosis(student_id: int):
     st.header("首次诊断")
     _render_section_focus_badge("initial_diagnosis")
@@ -432,10 +518,24 @@ def _render_initial_diagnosis(student_id: int):
         _render_diagnosis_result(flash_result)
 
     latest_record = dbs.get_latest_diagnosis_record(student_id)
+    runtime_result = st.session_state.get("student_diagnosis_runtime_result")
+    storage_warning = st.session_state.get("student_diagnosis_storage_warning")
     if latest_record and not st.session_state.get("student_diagnosis_active", False):
         st.info("你已经完成过首次诊断，下面是当前保存的诊断结果。")
         _render_diagnosis_result(latest_record)
         if st.button("重新做一次首次诊断", key="restart_initial_diagnosis"):
+            st.session_state["student_diagnosis_active"] = True
+            st.session_state["student_diagnosis_step"] = 0
+            st.session_state["student_diagnosis_answers"] = {}
+            st.rerun()
+        return
+
+    if runtime_result and not st.session_state.get("student_diagnosis_active", False):
+        st.info("这是你当前会话里的诊断结果。完成数据库迁移后，后续结果会自动保存。")
+        if storage_warning:
+            st.warning(storage_warning)
+        _render_diagnosis_result(runtime_result)
+        if st.button("重新做一次首次诊断", key="restart_runtime_initial_diagnosis"):
             st.session_state["student_diagnosis_active"] = True
             st.session_state["student_diagnosis_step"] = 0
             st.session_state["student_diagnosis_answers"] = {}
@@ -496,6 +596,17 @@ def _render_initial_diagnosis(student_id: int):
         result = evaluate_initial_diagnosis(answers_by_module)
         try:
             dbs.save_initial_diagnosis_result(student_id, result)
+            st.session_state.pop("student_diagnosis_runtime_result", None)
+            st.session_state.pop("student_diagnosis_storage_warning", None)
+        except DiagnosisStorageNotReadyError as e:
+            st.session_state["student_diagnosis_runtime_result"] = result
+            st.session_state["student_diagnosis_storage_warning"] = (
+                "诊断结果已生成，但当前环境还没完成数据库迁移，所以暂时只保存在本次会话里。"
+                " 请管理员先执行 `supabase_initial_diagnosis_migration.sql`。"
+            )
+            _clear_diagnosis_session_state()
+            st.session_state["student_diagnosis_flash"] = result
+            st.rerun()
         except Exception as e:
             st.error("诊断结果暂时没能成功保存，请先确认 Supabase 已执行首次诊断迁移脚本。")
             st.exception(e)
@@ -936,6 +1047,8 @@ def main():
     )
     _render_focus_hint()
 
+    _render_profile_page(home_data)
+    st.markdown("---")
     _render_initial_diagnosis(student_id)
     st.markdown("---")
     _render_vocab_test(student_id)
