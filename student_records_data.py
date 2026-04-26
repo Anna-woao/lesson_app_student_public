@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from supabase_client import get_admin_supabase_client, get_supabase_client
 
 
-UNCERTAIN_OPTION = "\u4e0d\u786e\u5b9a"
+UNCERTAIN_OPTION = "\u6211\u4e0d\u77e5\u9053"
 
 
 def _fetch_all_rows(query_builder, page_size: int = 1000):
