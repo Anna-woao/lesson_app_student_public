@@ -394,6 +394,7 @@ def run_system_check():
 
         ensure_vocab_test_records_table(cursor)
         ensure_vocab_test_record_items_table(cursor)
+        ensure_diagnostic_vocab_items_table(cursor)
 
         conn.commit()
         print("✅ 系统自检完成")
