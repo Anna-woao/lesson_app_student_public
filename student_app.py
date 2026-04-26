@@ -1,7 +1,7 @@
 """学生端入口（含词汇检测作答区）"""
 
 from datetime import datetime
-from html import escape
+from html import escape, unescape
 import re
 
 import streamlit as st
@@ -291,57 +291,99 @@ def _render_test_feedback_blocks(results):
         st.info("当前没有可展示的检测反馈。")
         return
 
-    st.markdown("### 本次考察单词清单")
-    for idx, item in enumerate(results, start=1):
-        st.write(f"{idx}. {item.get('word', '')}")
-
-    st.markdown("---")
-    st.markdown("### 错词订正")
-
+    total_count = len(results)
+    correct_results = [item for item in results if item.get("is_correct")]
     wrong_results = [item for item in results if not item.get("is_correct")]
-    if not wrong_results:
-        st.success("本轮没有错词，很棒。")
+    st.markdown(
+        (
+            '<div class="vocab-feedback-overview">'
+            f'<div class="vocab-feedback-overview-item"><span class="label">本次题数</span><span class="value">{total_count}</span></div>'
+            f'<div class="vocab-feedback-overview-item"><span class="label">答对</span><span class="value correct">{len(correct_results)}</span></div>'
+            f'<div class="vocab-feedback-overview-item"><span class="label">答错</span><span class="value wrong">{len(wrong_results)}</span></div>'
+            '</div>'
+        ),
+        unsafe_allow_html=True,
+    )
+
+    word_chips = "".join(
+        f'<span class="vocab-feedback-chip">{idx}. {escape(str(item.get("word", "") or "未命名单词"))}</span>'
+        for idx, item in enumerate(results, start=1)
+    )
+    with st.expander(f"查看本次考察单词（{total_count}）", expanded=False):
+        st.markdown(f'<div class="vocab-feedback-chip-wrap">{word_chips}</div>', unsafe_allow_html=True)
+
+    wrong_tab, correct_tab = st.tabs(
+        [f"需要订正（{len(wrong_results)}）", f"已答对（{len(correct_results)}）"]
+    )
+    with wrong_tab:
+        _render_vocab_feedback_grid(
+            wrong_results,
+            empty_message="这一轮没有错词，表现很稳。",
+            card_tone="wrong",
+        )
+    with correct_tab:
+        _render_vocab_feedback_grid(
+            correct_results,
+            empty_message="这一轮暂时还没有答对的词，先把错词订正完就好。",
+            card_tone="correct",
+        )
+
+
+def _clean_feedback_text(value, fallback: str = "（未作答）") -> str:
+    text = str(value or "").strip()
+    if not text:
+        return fallback
+    text = unescape(text.replace("&nbsp;", " "))
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or fallback
+
+
+def _get_correct_answer_text(item: dict) -> str:
+    mode = str(item.get("mode") or "").strip()
+    if mode == "英译中":
+        return _clean_feedback_text(item.get("meaning"), fallback="（暂无答案）")
+    return _clean_feedback_text(item.get("word"), fallback="（暂无答案）")
+
+
+def _render_vocab_feedback_grid(results, empty_message: str, card_tone: str):
+    if not results:
+        st.info(empty_message)
         return
 
-    for idx, item in enumerate(wrong_results, start=1):
-        word = escape(str(item.get("word", "")))
-        meaning = escape(str(item.get("meaning", "") or ""))
-        mode = item.get("mode", "")
-        user_answer = escape(str(item.get("user_answer") or "（未作答）"))
-        correct_answer = meaning if mode == "英译中" else word
-
-        st.markdown(
-            f"""
-            <div style="
-                margin-bottom: 14px;
-                padding: 10px 12px;
-                border: 1px solid #f3d6d6;
-                border-radius: 8px;
-                background: #fff8f8;
-            ">
-                <div style="
-                    color: #c62828;
-                    font-weight: 700;
-                    font-size: 18px;
-                ">
-                    {idx}. {word}
-                </div>
-
-                <div style="margin-top: 6px;">
-                    你的答案：{user_answer}
-                </div>
-
-                <div style="margin-top: 4px;">
-                    正确答案：{correct_answer}
-                </div>
-
-                <div style="margin-top: 4px; color: #666;">
-                    标准词义：{meaning}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
+    cards_html = []
+    for idx, item in enumerate(results, start=1):
+        word = escape(_clean_feedback_text(item.get("word"), fallback="未命名单词"))
+        mode = escape(str(item.get("mode") or ""))
+        user_answer = escape(_clean_feedback_text(item.get("user_answer")))
+        correct_answer = escape(_get_correct_answer_text(item))
+        tone_label = "需要订正" if card_tone == "wrong" else "回答正确"
+        cards_html.append(
+            (
+                f'<div class="vocab-feedback-card vocab-feedback-card--{card_tone}">'
+                '<div class="vocab-feedback-card-top">'
+                '<div>'
+                f'<div class="vocab-feedback-card-title">{idx}. {word}</div>'
+                f'<div class="vocab-feedback-card-mode">{mode}</div>'
+                '</div>'
+                f'<span class="vocab-feedback-card-pill vocab-feedback-card-pill--{card_tone}">{tone_label}</span>'
+                '</div>'
+                '<div class="vocab-feedback-answer-row">'
+                '<span class="vocab-feedback-answer-label">学生答案</span>'
+                f'<span class="vocab-feedback-answer-value">{user_answer}</span>'
+                '</div>'
+                '<div class="vocab-feedback-answer-row">'
+                '<span class="vocab-feedback-answer-label">正确答案</span>'
+                f'<span class="vocab-feedback-answer-value">{correct_answer}</span>'
+                '</div>'
+                '</div>'
+            )
         )
+
+    st.markdown(
+        f'<div class="vocab-feedback-grid">{"".join(cards_html)}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _render_vocab_test_intro(payload_exists: bool, result_exists: bool):
@@ -640,6 +682,129 @@ def _render_dashboard_styles():
             font-size: 15px;
             line-height: 1.5;
         }
+        .vocab-feedback-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin: 12px 0 10px 0;
+        }
+        .vocab-feedback-overview-item {
+            border: 1px solid #d9e6f2;
+            border-radius: 16px;
+            padding: 14px 16px;
+            background: linear-gradient(180deg, #ffffff 0%, #f6fbff 100%);
+            box-shadow: 0 8px 20px rgba(33, 76, 110, 0.05);
+        }
+        .vocab-feedback-overview-item .label {
+            display: block;
+            color: #5a7184;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+        .vocab-feedback-overview-item .value {
+            color: #102a43;
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .vocab-feedback-overview-item .value.correct {
+            color: #1f7a57;
+        }
+        .vocab-feedback-overview-item .value.wrong {
+            color: #c44747;
+        }
+        .vocab-feedback-chip-wrap {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding-top: 4px;
+        }
+        .vocab-feedback-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: #eef6ff;
+            border: 1px solid #d7e7f6;
+            color: #285275;
+            font-size: 13px;
+        }
+        .vocab-feedback-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 12px;
+            margin-top: 10px;
+        }
+        .vocab-feedback-card {
+            border-radius: 18px;
+            padding: 16px;
+            background: #ffffff;
+            box-shadow: 0 10px 24px rgba(33, 76, 110, 0.06);
+            min-height: 168px;
+        }
+        .vocab-feedback-card--wrong {
+            border: 1px solid #f1d3d3;
+            background: linear-gradient(180deg, #fffafa 0%, #ffffff 100%);
+        }
+        .vocab-feedback-card--correct {
+            border: 1px solid #d4eadf;
+            background: linear-gradient(180deg, #f7fffb 0%, #ffffff 100%);
+        }
+        .vocab-feedback-card-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+        .vocab-feedback-card-title {
+            color: #102a43;
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1.4;
+        }
+        .vocab-feedback-card-mode {
+            color: #6b7c93;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        .vocab-feedback-card-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 5px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .vocab-feedback-card-pill--wrong {
+            background: #fdecec;
+            color: #b53a3a;
+        }
+        .vocab-feedback-card-pill--correct {
+            background: #e6f6ed;
+            color: #17603f;
+        }
+        .vocab-feedback-answer-row {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 10px 12px;
+            border-radius: 14px;
+            background: rgba(237, 244, 250, 0.72);
+        }
+        .vocab-feedback-answer-row + .vocab-feedback-answer-row {
+            margin-top: 10px;
+        }
+        .vocab-feedback-answer-label {
+            color: #5a7184;
+            font-size: 12px;
+            letter-spacing: 0.02em;
+        }
+        .vocab-feedback-answer-value {
+            color: #102a43;
+            font-size: 15px;
+            line-height: 1.6;
+            word-break: break-word;
+        }
         div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {
             min-height: 42px;
         }
@@ -659,6 +824,9 @@ def _render_dashboard_styles():
             .student-page-title-row {
                 flex-direction: column;
                 align-items: flex-start;
+            }
+            .vocab-feedback-card {
+                min-height: auto;
             }
         }
         </style>
