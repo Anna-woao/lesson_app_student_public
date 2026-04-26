@@ -19,7 +19,23 @@ LEVEL_DISPLAY = {
     "L5": "L5 熟词生义 / 易混词",
 }
 
-UNCERTAIN_OPTION = "\u4e0d\u786e\u5b9a"
+LEVEL_TRAINING_LABELS = {
+    "L1": "基础日常词补底",
+    "L2": "初中高频词巩固",
+    "L3": "高中核心词提升",
+    "L4": "阅读高频词进阶",
+    "L5": "熟词生义与易混词专项",
+}
+
+QUESTION_TYPE_STUDENT_LABELS = {
+    "en_to_zh_choice": "看英文选中文",
+    "en_to_zh": "英文认词",
+    "zh_to_en": "中文找英文",
+    "confusable_choice": "易混词辨析",
+    "polysemy_context": "熟词生义判断",
+}
+
+UNCERTAIN_OPTION = "\u6211\u4e0d\u77e5\u9053"
 
 
 STATIC_NON_VOCAB_MODULES: List[Dict[str, Any]] = [
@@ -248,6 +264,66 @@ def _build_regular_module_report(module_key: str, score: int, total: int) -> Dic
     }
 
 
+def _build_vocab_status_label(ratio: float) -> str:
+    if ratio >= 0.85:
+        return "较稳"
+    if ratio >= 0.7:
+        return "有基础"
+    return "需要优先补强"
+
+
+def _build_confidence_label(uncertain_rate: float) -> str:
+    if uncertain_rate <= 0.08:
+        return "较高"
+    if uncertain_rate <= 0.18:
+        return "中等"
+    return "偏弱"
+
+
+def _pick_vocab_training_track(level_accuracy_map: Dict[str, float]) -> Dict[str, str]:
+    l1 = level_accuracy_map.get("L1", 0.0)
+    l2 = level_accuracy_map.get("L2", 0.0)
+    l3 = level_accuracy_map.get("L3", 0.0)
+    l4 = level_accuracy_map.get("L4", 0.0)
+    l5 = level_accuracy_map.get("L5", 0.0)
+
+    if l1 < 0.7:
+        return {
+            "track": "basic_survival_vocab",
+            "label": "基础日常词补底",
+            "reason": "一些最基础的日常词还不够稳定，需要先把人物、动作、时间、地点和学校生活词稳住。",
+        }
+    if l2 < 0.75:
+        return {
+            "track": "junior_high_frequency_vocab",
+            "label": "初中高频词巩固",
+            "reason": "基础词已经有一些起点，但常见连接词、基础动词和常用抽象名词还不够稳定。",
+        }
+    if l3 < 0.75:
+        return {
+            "track": "senior_high_core_vocab",
+            "label": "高中核心词提升",
+            "reason": "基础词比较稳，下一步要补高中阅读里经常出现的核心词。",
+        }
+    if l4 < 0.75:
+        return {
+            "track": "reading_abstract_vocab",
+            "label": "阅读高频词进阶",
+            "reason": "普通词汇基础不错，但说明文、科普文和议论文里的抽象词还需要加强。",
+        }
+    if l5 < 0.75:
+        return {
+            "track": "polysemy_confusable_special",
+            "label": "熟词生义与易混词专项",
+            "reason": "词汇量基础已经比较好，现在更容易丢分的是熟词生义和相近词辨析。",
+        }
+    return {
+        "track": "advanced_reading_vocab",
+        "label": "高阶阅读词汇巩固",
+        "reason": "词汇基础整体比较稳，可以进入更完整的高考阅读和题型训练。",
+    }
+
+
 def _build_vocab_module(vocab_questions: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not vocab_questions:
         raise ValueError("首次诊断词汇题库为空，无法生成正式词汇诊断模块。")
@@ -344,6 +420,10 @@ def _build_vocab_diagnostic_result(questions: List[Dict[str, Any]], answers: Dic
         key: _compute_ratio(question_type_correct[key], question_type_totals[key])
         for key in question_type_totals
     }
+    question_type_accuracy_map_display = {
+        QUESTION_TYPE_STUDENT_LABELS.get(key, key): value
+        for key, value in question_type_accuracy_map.items()
+    }
 
     high_frequency_total = level_totals["L1"] + level_totals["L2"]
     high_frequency_correct = level_correct["L1"] + level_correct["L2"]
@@ -365,99 +445,122 @@ def _build_vocab_diagnostic_result(questions: List[Dict[str, Any]], answers: Dic
 
     if level_accuracy_map.get("L1", 0.0) < 0.6:
         estimated_vocab_range = "预计词汇量区间：0-800"
-        vocab_level_label = "起步夯基"
-        recommended_training_start = LEVEL_DISPLAY["L1"]
+        vocab_level_label = "起步打底"
     elif level_accuracy_map.get("L2", 0.0) < 0.6:
         estimated_vocab_range = "预计词汇量区间：800-1500"
         vocab_level_label = "基础过渡"
-        recommended_training_start = LEVEL_DISPLAY["L2"]
     elif level_accuracy_map.get("L3", 0.0) < 0.55:
         estimated_vocab_range = "预计词汇量区间：1500-2500"
-        vocab_level_label = "中阶起点"
-        recommended_training_start = LEVEL_DISPLAY["L3"]
+        vocab_level_label = "高中起点"
     elif level_accuracy_map.get("L4", 0.0) < 0.5:
         estimated_vocab_range = "预计词汇量区间：2500-3500"
         vocab_level_label = "阅读进阶"
-        recommended_training_start = LEVEL_DISPLAY["L4"]
     elif level_accuracy_map.get("L5", 0.0) < 0.45:
         estimated_vocab_range = "预计词汇量区间：3500-4500"
-        vocab_level_label = "高阶过渡"
-        recommended_training_start = LEVEL_DISPLAY["L5"]
+        vocab_level_label = "进阶辨义"
     else:
         estimated_vocab_range = "预计词汇量区间：4500+"
         vocab_level_label = "高阶稳定"
-        recommended_training_start = "L5 熟词生义与易混词精炼训练"
 
-    if uncertain_rate >= 0.2:
-        main_vocab_problem = "词义判断不够确定，说明词汇识别稳定性不足"
-    elif question_type_totals["polysemy_context"] and polysemy_accuracy < 0.5:
-        main_vocab_problem = "熟词生义语境判断偏弱"
-    elif question_type_totals["confusable_choice"] and confusable_accuracy < 0.5:
-        main_vocab_problem = "易混词辨析偏弱"
-    elif high_frequency_total and high_frequency_accuracy < 0.65:
-        main_vocab_problem = "高频核心词掌握还不够稳"
-    elif reading_vocab_total and reading_vocab_accuracy < 0.6:
-        main_vocab_problem = "阅读高频词储备不足"
+    training_track = _pick_vocab_training_track(level_accuracy_map)
+    vocab_training_track = training_track["track"]
+    vocab_training_track_label = training_track["label"]
+    vocab_training_track_reason = training_track["reason"]
+    recommended_training_start = vocab_training_track_label
+
+    if vocab_training_track == "basic_survival_vocab":
+        main_vocab_problem = "最基础的日常词还不够稳，容易在人物、动作、时间和学校生活词上丢分。"
+    elif vocab_training_track == "junior_high_frequency_vocab":
+        main_vocab_problem = "初中阶段最常见的高频词还不够稳，连接词、基础动词和常用抽象名词需要继续巩固。"
+    elif vocab_training_track == "senior_high_core_vocab":
+        main_vocab_problem = "高中阅读里最常见的核心词还不够稳，读文章时会影响抓关键词。"
+    elif vocab_training_track == "reading_abstract_vocab":
+        main_vocab_problem = "说明文、科普文和议论文里的抽象词还比较薄弱。"
+    elif vocab_training_track == "polysemy_confusable_special":
+        main_vocab_problem = "不是单词量明显不够，而是熟词换了意思、或者几个相近词放在一起时容易混。"
     else:
-        main_vocab_problem = "需要继续巩固跨层级迁移和细粒度辨义"
+        main_vocab_problem = "整体词汇基础比较稳，下一步更适合继续扩大阅读场景里的词汇稳定度。"
 
     level_breakdown = " / ".join(
         f"{level} {level_correct[level]}/{level_totals[level]}"
         for level in ["L1", "L2", "L3", "L4", "L5"]
         if level_totals[level]
     )
+
     strengths = []
     risk_flags = []
     recommended_actions = []
 
-    if high_frequency_total and high_frequency_accuracy >= 0.8:
-        strengths.append("高频核心词识别比较稳定")
-    if reading_vocab_total and reading_vocab_accuracy >= 0.7:
-        strengths.append("阅读高频词具备一定储备")
-    if question_type_totals["confusable_choice"] and confusable_accuracy >= 0.7:
-        strengths.append("易混词辨析表现较稳")
-    if question_type_totals["polysemy_context"] and polysemy_accuracy >= 0.6:
-        strengths.append("熟词生义语境判断已有基础")
-    if uncertain_rate <= 0.08:
-        strengths.append("答题确定性较高")
+    if high_frequency_accuracy >= 0.8 and reading_vocab_accuracy >= 0.75:
+        strengths.append("你已经能比较稳定地认出基础词和高中阅读常见词。")
+    elif high_frequency_accuracy >= 0.8:
+        strengths.append("你的基础词比较稳，常见高频词大多能认出来。")
+    elif reading_vocab_accuracy >= 0.75:
+        strengths.append("普通阅读里的大部分关键词，你已经能抓住。")
 
+    if question_type_totals["polysemy_context"] and 0.55 <= polysemy_accuracy < 0.75:
+        strengths.append("熟词生义不是完全不会，但还需要练到更稳定。")
+    if question_type_totals["confusable_choice"] and confusable_accuracy >= 0.7:
+        strengths.append("相近词放在一起时，你已经有一定辨别能力。")
+    if uncertain_rate <= 0.08:
+        strengths.append("做题时你的把握度比较高，很多题都能直接做出判断。")
     if not strengths:
-        strengths.append("基础识别能力已经建立，但还需要继续拉开层级差异")
+        strengths.append("你已经有一定词汇基础，接下来重点是把薄弱那一层补稳。")
+
+    if vocab_training_track == "basic_survival_vocab":
+        risk_flags.append("基础日常词还不够稳，所以后面的阅读词更难真正用起来。")
+        recommended_actions.append("接下来最值得练的是：基础日常词、人物动作词、学校生活词。")
+    elif vocab_training_track == "junior_high_frequency_vocab":
+        risk_flags.append("常见连接词、基础动词和常用抽象名词还不够稳。")
+        recommended_actions.append("接下来最值得练的是：常见连接词、基础动词、常用抽象名词。")
+    elif vocab_training_track == "senior_high_core_vocab":
+        risk_flags.append("高中阅读核心词还不够稳，会影响抓文章关键词。")
+        recommended_actions.append("接下来最值得练的是：高中阅读核心词、常见阅读动词、常见抽象名词。")
+    elif vocab_training_track == "reading_abstract_vocab":
+        risk_flags.append("说明文、科普文和议论文里的抽象词还会拖慢理解。")
+        recommended_actions.append("接下来最值得练的是：说明文/科普文常见词、观点词、过程词、原因结果词。")
+    elif vocab_training_track == "polysemy_confusable_special":
+        risk_flags.append("你认识的词不少，但在真实阅读里，熟词换义和相近词更容易让你丢分。")
+        recommended_actions.append("接下来最值得练的是：熟词生义、相近词辨析、句子中的词义判断。")
+    else:
+        risk_flags.append("当前没有明显塌层，后面更需要扩大阅读场景里的词汇稳定度。")
+        recommended_actions.append("接下来可以进入更完整的高考阅读词汇巩固和题型训练。")
 
     if uncertain_rate >= 0.2:
-        risk_flags.append("不确定选项使用偏多，说明词义判断稳定性不足")
-        recommended_actions.append("先从高频词短测和错题回看开始，减少看到词但不敢判断的情况")
-    if high_frequency_total and high_frequency_accuracy < 0.65:
-        risk_flags.append("L1-L2 高频核心词掌握还不够稳")
-        recommended_actions.append("优先回到 L1-L2 高频词巩固，先稳住基础词义识别")
-    if reading_vocab_total and reading_vocab_accuracy < 0.6:
-        risk_flags.append("L3-L4 阅读高频词储备不足")
-        recommended_actions.append("增加阅读高频词的语境辨义训练，避免只会孤立记词")
-    if question_type_totals["polysemy_context"] and polysemy_accuracy < 0.5:
-        risk_flags.append("熟词生义题型偏弱")
-        recommended_actions.append("后续训练里单独加入熟词生义语境判断题")
-    if question_type_totals["confusable_choice"] and confusable_accuracy < 0.5:
-        risk_flags.append("易混词辨析偏弱")
-        recommended_actions.append("后续训练里补充近形近义词辨析，减少混淆性错误")
+        risk_flags.append("“我不知道”选得偏多，说明有些题不是完全不会，而是还不敢稳稳判断。")
+        recommended_actions.append("后续训练里要加上短测和错题回看，先把会的词答得更稳。")
+    elif uncertain_rate >= 0.1:
+        risk_flags.append("你的基础有了，但答题时还可以更果断一些。")
 
-    if not recommended_actions:
-        recommended_actions.append("可以从当前推荐层级继续做分层巩固，并逐步提高阅读场景迁移比例")
+    if vocab_training_track == "polysemy_confusable_special":
+        student_explanation = """?????????????????????????????????
 
-    if not risk_flags:
-        risk_flags.append("当前没有明显单点塌陷，更需要继续扩大词汇覆盖面和迁移使用")
+????????????
+???????????????
+????????????????????
+
+???????????
+???? + ????????"""
+    else:
+        student_explanation = f"""?????????????{vocab_training_track_label}????
+
+????{vocab_training_track_reason}"""
+
+    l5_note = ""
+    if level_accuracy_map.get("L5", 0.0) < 0.75:
+        l5_note = "这个结果说明：你认识的词不少，但在真实阅读里，熟词换义和相近词会让你丢分。"
 
     profile_summary = (
-        f"词汇题共答对 {correct_count}/{total_count}，"
-        f"高频核心词正确率 {round(high_frequency_accuracy * 100)}%，"
-        f"阅读词汇正确率 {round(reading_vocab_accuracy * 100)}%，"
-        f"不确定占比 {round(uncertain_rate * 100)}%。"
+        f"这次词汇题你答对了 {correct_count}/{total_count}。"
+        f" 基础词正确率 {round(high_frequency_accuracy * 100)}%，"
+        f" 阅读词正确率 {round(reading_vocab_accuracy * 100)}%，"
+        f" “我不知道”占比 {round(uncertain_rate * 100)}%。"
     )
     summary = (
-        f"本轮词汇诊断共答对 {correct_count}/{total_count}，"
-        f"分层表现为 {level_breakdown}。"
-        f" 不确定选项使用率为 {round(uncertain_rate * 100)}%。"
+        f"这轮词汇诊断答对 {correct_count}/{total_count}，"
+        f"分层表现是 {level_breakdown}。"
     )
-    recommendation = f"建议从“{recommended_training_start}”开始，优先解决“{main_vocab_problem}”。"
+    recommendation = f"接下来建议先进入“{vocab_training_track_label}”。{vocab_training_track_reason}"
 
     return {
         "correct_count": correct_count,
@@ -477,12 +580,21 @@ def _build_vocab_diagnostic_result(questions: List[Dict[str, Any]], answers: Dic
         "vocab_level_label": vocab_level_label,
         "main_vocab_problem": main_vocab_problem,
         "recommended_training_start": recommended_training_start,
+        "vocab_training_track": vocab_training_track,
+        "vocab_training_track_label": vocab_training_track_label,
+        "vocab_training_track_reason": vocab_training_track_reason,
         "level_accuracy_map": level_accuracy_map,
         "question_type_accuracy_map": question_type_accuracy_map,
+        "question_type_accuracy_map_display": question_type_accuracy_map_display,
         "level_correct_counts": dict(level_correct),
         "level_total_counts": dict(level_totals),
         "question_type_correct_counts": dict(question_type_correct),
         "question_type_total_counts": dict(question_type_totals),
+        "basic_vocab_status": _build_vocab_status_label(high_frequency_accuracy),
+        "reading_vocab_status": _build_vocab_status_label(reading_vocab_accuracy),
+        "answer_confidence_label": _build_confidence_label(uncertain_rate),
+        "student_explanation": student_explanation,
+        "l5_interpretation": l5_note,
         "strengths": strengths,
         "risk_flags": risk_flags,
         "recommended_actions": recommended_actions,
@@ -497,9 +609,12 @@ def _build_vocab_diagnostic_result(questions: List[Dict[str, Any]], answers: Dic
             "uncertain_rate": uncertain_rate,
             "estimated_vocab_range": estimated_vocab_range,
             "recommended_training_start": recommended_training_start,
+            "vocab_training_track": vocab_training_track,
+            "vocab_training_track_label": vocab_training_track_label,
             "main_vocab_problem": main_vocab_problem,
             "level_accuracy_map": level_accuracy_map,
             "question_type_accuracy_map": question_type_accuracy_map,
+            "question_type_accuracy_map_display": question_type_accuracy_map_display,
             "profile_summary": profile_summary,
         },
     }
@@ -549,73 +664,70 @@ def evaluate_initial_diagnosis(
     writing_score = scores.get("writing", 0)
 
     vocab_band = vocab_result["estimated_vocab_range"]
-    title_label = vocab_result["vocab_level_label"]
+    title_label = vocab_result["vocab_training_track_label"]
 
     if reading_score <= 1:
-        reading_profile = "当前阅读能力画像：能抓到少量明显信息，建议先从基础阅读理解和定位训练开始。"
+        reading_profile = "阅读这部分还需要先从主旨句、细节定位和基础理解开始。"
     elif reading_score <= 3:
-        reading_profile = "当前阅读能力画像：已经具备基础理解能力，适合进入稳步提升训练。"
+        reading_profile = "你已经有基础阅读能力，接下来重点是把抓信息和读懂逻辑练得更稳。"
     else:
-        reading_profile = "当前阅读能力画像：能较稳定抓住主旨和细节，可以逐步挑战更综合的阅读任务。"
+        reading_profile = "阅读基础比较稳，可以逐步进入更完整的阅读训练。"
 
     if grammar_score <= 2:
-        grammar_gap = "当前语法基础缺口：时态、主谓一致和基础句型还需要重点巩固。"
+        grammar_gap = "语法上更需要先稳住时态、主谓一致和基础句型。"
     elif grammar_score <= 4:
-        grammar_gap = "当前语法基础缺口：基础语法已建立，但句型稳定性还需要继续练习。"
+        grammar_gap = "基础语法已经有了，但句型运用还需要继续练熟。"
     else:
-        grammar_gap = "当前语法基础缺口：基础语法比较稳，可以逐步进入综合运用。"
+        grammar_gap = "语法基础比较稳，可以更多放到真实语境里继续巩固。"
 
     if writing_score <= 1:
-        writing_profile = "当前写作基础：更适合先从完整句表达和连接词使用开始。"
+        writing_profile = "写作上更适合先从完整句表达和连接词使用开始。"
     elif writing_score <= 3:
-        writing_profile = "当前写作基础：已能组织基础表达，下一步适合强化段落结构。"
+        writing_profile = "你已经能组织基础表达，下一步更适合练段落结构。"
     else:
-        writing_profile = "当前写作基础：具备基础结构意识，可以开始承接更完整的表达训练。"
+        writing_profile = "写作基础已有起点，可以逐步承接更完整的表达训练。"
 
     priority_module = min(module_reports, key=lambda key: (module_reports[key]["ratio"], module_reports[key]["score"]))
     strongest_module = max(module_reports, key=lambda key: (module_reports[key]["ratio"], module_reports[key]["score"]))
 
     suggested_track_map = {
-        "vocab": f"建议进入的学习轨道：先从 {vocab_result['recommended_training_start']} 开始，做分层词汇巩固与短测。",
-        "reading": "建议进入的学习轨道：先从基础阅读理解与信息定位训练开始。",
-        "grammar": "建议进入的学习轨道：先从核心语法与句型稳定训练开始。",
-        "writing": "建议进入的学习轨道：先从句子表达与短段写作训练开始。",
+        "vocab": f"建议先进入“{vocab_result['vocab_training_track_label']}”。{vocab_result['vocab_training_track_reason']}",
+        "reading": "建议先从基础阅读理解与信息定位训练开始。",
+        "grammar": "建议先从核心语法与基础句型稳定训练开始。",
+        "writing": "建议先从句子表达与短段写作训练开始。",
     }
     growth_focus_map = {
-        "vocab": f"当前成长重点：{vocab_result['main_vocab_problem']}。",
-        "reading": "当前成长重点：先把主旨和关键信息读出来。",
-        "grammar": "当前成长重点：先把基础时态和句型搭稳。",
-        "writing": "当前成长重点：先把完整句和连接表达写顺。",
+        "vocab": f"当前最值得优先解决的是：{vocab_result['main_vocab_problem']}",
+        "reading": "当前最值得优先解决的是：先把主旨和关键信息读出来。",
+        "grammar": "当前最值得优先解决的是：先把基础时态和句型稳住。",
+        "writing": "当前最值得优先解决的是：先把完整句和连接表达写顺。",
     }
 
     average_ratio = sum(scores.values()) / max(sum(totals.values()), 1)
     if average_ratio < 0.45:
-        stage_label = "准备起步"
-        overall_summary = "你现在最需要的是先建立稳定的基础节奏，不必急着做太难的综合任务。"
+        stage_label = "先把基础打稳"
+        overall_summary = "你现在最需要的是先把基础节奏稳住，不用急着做太难的综合任务。"
     elif average_ratio < 0.75:
-        stage_label = "稳步提升"
-        overall_summary = "你已经具备基础起点，接下来重点是把已有能力练得更稳、更连续。"
+        stage_label = "稳步往上提"
+        overall_summary = "你已经有了学习起点，接下来重点是把已有能力练得更稳、更连续。"
     else:
-        stage_label = "持续进阶"
-        overall_summary = "你的基础已经比较稳，可以开始承接更完整的综合训练。"
+        stage_label = "可以继续进阶"
+        overall_summary = "你的基础整体比较稳，可以开始承接更完整的综合训练。"
 
     next_actions = [
         growth_focus_map[priority_module],
         suggested_track_map[priority_module],
-        f"词汇诊断建议起点：{vocab_result['recommended_training_start']}。",
-        f"当前相对更稳的模块是“{module_reports[strongest_module]['short_title']}”，可以把它作为保持信心的支撑点。",
+        f"词汇优先训练方向：{vocab_result['vocab_training_track_label']}。",
+        f"你当前相对更稳的是“{module_reports[strongest_module]['short_title']}”，可以把它当成保持信心的支点。",
     ]
 
-    summary_text = " ".join(
-        [
-            overall_summary,
-            vocab_band,
-            f"词汇问题重点：{vocab_result['main_vocab_problem']}。",
-            reading_profile,
-            grammar_gap,
-            writing_profile,
-        ]
-    )
+    summary_parts = [
+        overall_summary,
+        f"词汇优先训练方向是“{vocab_result['vocab_training_track_label']}”。",
+    ]
+    if vocab_result.get("l5_interpretation"):
+        summary_parts.append(vocab_result["l5_interpretation"])
+    summary_text = " ".join(summary_parts)
 
     return {
         "scores": scores,
@@ -637,12 +749,15 @@ def evaluate_initial_diagnosis(
         "next_actions": next_actions,
         "vocab_profile_summary": vocab_result.get("profile_summary", ""),
         "vocab_diagnostic_result": vocab_result,
+        "vocab_training_track": vocab_result.get("vocab_training_track", ""),
+        "vocab_training_track_label": vocab_result.get("vocab_training_track_label", ""),
+        "vocab_training_track_reason": vocab_result.get("vocab_training_track_reason", ""),
         "dimensions": {
             "词汇储备": module_reports["vocab"]["summary"],
             "阅读理解": module_reports["reading"]["summary"],
             "语法掌握": module_reports["grammar"]["summary"],
             "写作表达": module_reports["writing"]["summary"],
-            "实战发挥": overall_summary,
-            "学习执行力": "当前先以能稳定完成每日任务为主要观察点，后续会根据训练完成情况继续更新。",
+            "当前阶段": overall_summary,
+            "接下来怎么学": suggested_track_map[priority_module],
         },
     }
