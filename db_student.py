@@ -850,12 +850,12 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
 
 
 
-def _fetch_diagnostic_vocab_rows(active_versions=None):
+def _fetch_diagnostic_vocab_rows(active_versions=None, *, active_only: bool | None = True):
     from diagnostic_vocab_service import ACTIVE_DIAGNOSTIC_VERSIONS
 
     versions = tuple(active_versions or ACTIVE_DIAGNOSTIC_VERSIONS)
     supabase = _get_admin_supabase_client_required()
-    response = (
+    query = (
         supabase.table("diagnostic_vocab_items")
         .select(
             "item_id, module, level, word, primary_meaning_zh, part_of_speech, "
@@ -867,13 +867,26 @@ def _fetch_diagnostic_vocab_rows(active_versions=None):
             "notes_for_codex, created_at, updated_at"
         )
         .in_("version", list(versions))
-        .eq("is_active", True)
-        .execute()
     )
+    if active_only is True:
+        query = query.eq("is_active", True)
+    elif active_only is False:
+        query = query.eq("is_active", False)
+    response = query.execute()
     return response.data or []
 
 
-# Temporary student-side preview hook for the new diagnostic vocab bank.
+def get_diagnostic_vocab_bank_status(*, active_versions=None):
+    from diagnostic_vocab_service import ACTIVE_DIAGNOSTIC_VERSIONS, summarize_diagnostic_vocab_rows
+
+    versions = tuple(active_versions or ACTIVE_DIAGNOSTIC_VERSIONS)
+    rows = _fetch_diagnostic_vocab_rows(active_versions=versions, active_only=None)
+    summary = summarize_diagnostic_vocab_rows(rows)
+    summary["active_count"] = sum(1 for row in rows if bool(row.get("is_active")))
+    summary["ready_for_diagnosis"] = summary["total_count"] > 0
+    return summary
+
+
 def get_diagnostic_vocab_items_for_test(*, active_versions=None, random_seed: int | None = None):
     from diagnostic_vocab_service import (
         ACTIVE_DIAGNOSTIC_VERSIONS,
