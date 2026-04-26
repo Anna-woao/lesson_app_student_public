@@ -702,6 +702,92 @@ def _render_dashboard_styles():
             font-size: 15px;
             line-height: 1.5;
         }
+        .student-diagnosis-question-shell {
+            border: 1px solid #cfe0ef;
+            border-radius: 20px;
+            padding: 18px 20px 8px 20px;
+            background:
+                radial-gradient(circle at top right, rgba(227, 242, 253, 0.9), rgba(255,255,255,0) 34%),
+                linear-gradient(180deg, #ffffff 0%, #f8fbfe 100%);
+            box-shadow: 0 10px 26px rgba(33, 76, 110, 0.06);
+            margin-bottom: 18px;
+        }
+        .student-diagnosis-question-tag {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: #e6f4ea;
+            color: #17603a;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        .student-diagnosis-question-title {
+            color: #102a43;
+            font-size: 24px;
+            font-weight: 700;
+            line-height: 1.45;
+            margin: 0 0 10px 0;
+        }
+        .student-diagnosis-question-subtitle {
+            color: #486581;
+            font-size: 15px;
+            line-height: 1.7;
+            margin-bottom: 12px;
+        }
+        .student-diagnosis-question-sentence {
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: #f4f8fb;
+            border-left: 4px solid #4c9aff;
+            color: #334e68;
+            font-size: 15px;
+            line-height: 1.65;
+            margin-bottom: 12px;
+        }
+        .student-diagnosis-page-summary {
+            border: 1px solid #d8e5f0;
+            border-radius: 18px;
+            padding: 14px 16px;
+            background: linear-gradient(180deg, #fafdff 0%, #eef6fc 100%);
+            margin-bottom: 14px;
+        }
+        .student-diagnosis-page-title {
+            color: #102a43;
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+        .student-diagnosis-page-meta {
+            color: #486581;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .student-diagnosis-missing-box {
+            border: 1px solid #f4c7c3;
+            border-radius: 18px;
+            padding: 14px 16px;
+            background: linear-gradient(180deg, #fff8f7 0%, #fff1ef 100%);
+            margin-bottom: 14px;
+        }
+        .student-diagnosis-missing-title {
+            color: #b42318;
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+        .student-diagnosis-missing-links a {
+            display: inline-block;
+            margin: 4px 8px 0 0;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: #ffffff;
+            border: 1px solid #f0b7b0;
+            color: #9f2a20;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 600;
+        }
         .vocab-feedback-overview {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -1244,6 +1330,9 @@ def _clear_diagnosis_session_state():
         "student_diagnosis_started_at",
         "student_diagnosis_module_started_at",
         "student_diagnosis_module_started_at_map",
+        "student_diagnosis_vocab_page",
+        "student_diagnosis_missing_question_ids",
+        "student_diagnosis_missing_page",
     ]:
         st.session_state.pop(key, None)
 
@@ -1304,6 +1393,9 @@ def _build_saved_diagnosis_result(student_id: int):
         "totals": latest_record.get("module_totals") or {},
         "vocab_profile_summary": profile_payload.get("vocab_profile_summary") or "",
         "vocab_diagnostic_result": profile_payload.get("vocab_diagnostic_result") or {},
+        "vocab_training_track": profile_payload.get("vocab_training_track") or "",
+        "vocab_training_track_label": profile_payload.get("vocab_training_track_label") or "",
+        "vocab_training_track_reason": profile_payload.get("vocab_training_track_reason") or "",
         "module_reports": profile_payload.get("module_reports") or {},
         "priority_module": profile_payload.get("priority_module"),
         "strongest_module": profile_payload.get("strongest_module"),
@@ -1351,42 +1443,140 @@ def _render_diagnosis_module_overview(definition, active_step: int | None = None
             )
 
 
-def _render_diagnosis_result(result: dict):
-    dimensions = result.get("dimensions", {})
-    module_reports = result.get("module_reports", {})
-    vocab_profile_summary = result.get("vocab_profile_summary", "")
-    vocab_diagnostic_result = result.get("vocab_diagnostic_result") or {}
-    card_items = [
-        ("词汇量区间", result.get("vocab_band", "")),
-        ("阅读能力画像", result.get("reading_profile", "")),
-        ("语法基础缺口", result.get("grammar_gap", "")),
-        ("写作基础判断", result.get("writing_profile", "")),
-        ("建议学习轨道", result.get("suggested_track", "")),
-        ("当前成长重点", result.get("growth_focus", "")),
-    ]
-    cards_html = "".join(
-        f"""
-        <div class="student-diagnosis-mini-card">
-            <div class="student-diagnosis-mini-title">{title}</div>
-            <div class="student-diagnosis-mini-body">{body or '待生成'}</div>
-        </div>
-        """
-        for title, body in card_items
-    )
+VOCAB_DIAG_PAGE_SIZE = 8
+LEVEL_SEGMENT_LABELS = {
+    "L1": "L1 基础生存词",
+    "L2": "L2 高频基础词",
+    "L3": "L3 阅读核心词",
+    "L4": "L4 进阶阅读词",
+    "L5": "L5 熟词生义与易混词",
+}
+QUESTION_TYPE_LABELS = {
+    "en_to_zh_choice": "英文识义",
+    "en_to_zh": "英文识义",
+    "zh_to_en": "中文找英文",
+    "polysemy_context": "语境义判断",
+    "confusable_choice": "易混词辨析",
+}
+
+
+def _format_question_type_label(question_type: str) -> str:
+    return QUESTION_TYPE_LABELS.get(question_type or "", question_type or "词汇判断")
+
+
+def _build_vocab_page_meta(questions: list[dict]) -> str:
+    level_labels = []
+    question_type_labels = []
+    for question in questions:
+        level = str(question.get("level") or "").strip()
+        if level and level not in level_labels:
+            level_labels.append(level)
+        question_type = _format_question_type_label(str(question.get("question_type") or "").strip())
+        if question_type and question_type not in question_type_labels:
+            question_type_labels.append(question_type)
+    parts = []
+    if level_labels:
+        parts.append("层级：" + " / ".join(level_labels))
+    if question_type_labels:
+        parts.append("题型：" + " / ".join(question_type_labels))
+    return " ｜ ".join(parts)
+
+
+def _build_vocab_page_title(questions: list[dict]) -> str:
+    if not questions:
+        return "词汇诊断"
+    first_question = questions[0]
+    level = str(first_question.get("level") or "").strip()
+    question_type = _format_question_type_label(str(first_question.get("question_type") or "").strip())
+    level_label = LEVEL_SEGMENT_LABELS.get(level, level or "词汇诊断")
+    return f"{level_label} · {question_type}"
+
+
+def _build_question_anchor_id(question_id: str) -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(question_id or "").strip())
+    return f"diag-question-{normalized or 'unknown'}"
+
+
+def _render_vocab_question_card(question: dict, question_index: int):
+    question_type_label = _format_question_type_label(str(question.get("question_type") or "").strip())
+    level_label = str(question.get("level") or "").strip()
+    prompt = escape(str(question.get("prompt") or ""))
+    sentence = escape(str(question.get("sentence") or ""))
+    anchor_id = _build_question_anchor_id(str(question.get("id") or ""))
     st.markdown(
         f"""
-        <div class="student-home-card">
-            <div class="student-home-kicker">首次诊断结果</div>
-            <div class="student-home-task-title">{result.get("title_label", "")}｜{result.get("stage_label", "")}</div>
-            <p class="student-home-subtitle">{result.get("overall_summary", "")}</p>
-            <p class="student-home-subtitle">{result.get("summary_text", "")}</p>
-            <div class="student-diagnosis-grid">
-                {cards_html}
+        <div id="{anchor_id}" class="student-diagnosis-question-shell">
+            <div class="student-diagnosis-question-tag">第 {question_index} 题 · {level_label} · {question_type_label}</div>
+            <div class="student-diagnosis-question-title">{prompt}</div>
+            <div class="student-diagnosis-question-subtitle">
+                请选择你认为最合适的答案；如果完全不会，就选“我不知道”。
             </div>
+            {"<div class='student-diagnosis-question-sentence'>" + sentence + "</div>" if sentence else ""}
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+
+RESULT_LEVEL_LABELS = {
+    "L1": "L1 基础日常词",
+    "L2": "L2 初中高频词",
+    "L3": "L3 高中核心词",
+    "L4": "L4 阅读高频词",
+    "L5": "L5 熟词生义与易混词",
+}
+
+
+def _format_percent(value: float) -> str:
+    return f"{round((value or 0.0) * 100)}%"
+
+
+def _render_summary_metric(column, title: str, value: str, detail: str):
+    with column:
+        st.markdown(f"**{title}**")
+        st.markdown(value)
+        st.caption(detail)
+
+
+def _render_diagnosis_result(result: dict):
+    dimensions = result.get("dimensions", {}) or {}
+    module_reports = result.get("module_reports", {}) or {}
+    vocab_diagnostic_result = result.get("vocab_diagnostic_result") or {}
+
+    st.markdown("### 首次诊断结果")
+    st.write(result.get("overall_summary", ""))
+
+    if vocab_diagnostic_result.get("student_explanation"):
+        st.info(vocab_diagnostic_result.get("student_explanation", ""))
+    elif result.get("summary_text"):
+        st.info(result.get("summary_text", ""))
+
+    if vocab_diagnostic_result:
+        metric_cols = st.columns(4)
+        _render_summary_metric(
+            metric_cols[0],
+            "优先训练",
+            vocab_diagnostic_result.get("vocab_training_track_label", "待生成"),
+            vocab_diagnostic_result.get("vocab_training_track_reason", ""),
+        )
+        _render_summary_metric(
+            metric_cols[1],
+            "基础词掌握",
+            vocab_diagnostic_result.get("basic_vocab_status", "待判断"),
+            f"基础词正确率 {_format_percent(vocab_diagnostic_result.get('high_frequency_accuracy', 0.0))}",
+        )
+        _render_summary_metric(
+            metric_cols[2],
+            "阅读词掌握",
+            vocab_diagnostic_result.get("reading_vocab_status", "待判断"),
+            f"阅读词正确率 {_format_percent(vocab_diagnostic_result.get('reading_vocab_accuracy', 0.0))}",
+        )
+        _render_summary_metric(
+            metric_cols[3],
+            "答题把握度",
+            vocab_diagnostic_result.get("answer_confidence_label", "待判断"),
+            f"“我不知道”占比 {_format_percent(vocab_diagnostic_result.get('uncertain_rate', 0.0))}",
+        )
 
     if module_reports:
         st.markdown("### 模块诊断拆解")
@@ -1397,63 +1587,54 @@ def _render_diagnosis_result(result: dict):
             score = module.get("score", 0)
             total = module.get("total", 0)
             ratio = module.get("ratio", 0.0) or 0.0
-            st.markdown(
-                f"""
-                <div class="student-home-card">
-                    <div class="student-home-kicker">{module.get("title", module_key)}</div>
-                    <div class="student-home-task-title">{score} / {total} ｜ {module.get("level_label", "")}</div>
-                    <p class="student-home-subtitle">{module.get("summary", "")}</p>
-                    <p class="student-home-task-desc">{module.get("recommendation", "")}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            st.progress(ratio)
+            with st.container():
+                st.markdown(f"**{module.get('title', module_key)}**")
+                st.write(f"{score} / {total} | {module.get('level_label', '')}")
+                st.write(module.get("summary", ""))
+                st.caption(module.get("recommendation", ""))
+                st.progress(ratio)
 
     if vocab_diagnostic_result:
-        if vocab_profile_summary:
-            st.markdown("### 词汇画像摘要")
-            st.info(vocab_profile_summary)
-        vocab_metric_cols = st.columns(4)
-        with vocab_metric_cols[0]:
-            st.metric("推荐起点", vocab_diagnostic_result.get("recommended_training_start", ""))
-        with vocab_metric_cols[1]:
-            st.metric("高频词正确率", f"{round((vocab_diagnostic_result.get('high_frequency_accuracy', 0.0) or 0.0) * 100)}%")
-        with vocab_metric_cols[2]:
-            st.metric("阅读词汇正确率", f"{round((vocab_diagnostic_result.get('reading_vocab_accuracy', 0.0) or 0.0) * 100)}%")
-        with vocab_metric_cols[3]:
-            st.metric("不确定占比", f"{round((vocab_diagnostic_result.get('uncertain_rate', 0.0) or 0.0) * 100)}%")
-        with st.expander("查看词汇诊断拆解", expanded=False):
-            st.markdown(f"**当前主要词汇问题**：{vocab_diagnostic_result.get('main_vocab_problem', '')}")
-            level_cols = st.columns(5)
-            for column, level_key in zip(level_cols, ["l1_accuracy", "l2_accuracy", "l3_accuracy", "l4_accuracy", "l5_accuracy"]):
-                with column:
-                    level_label = level_key.split("_")[0].upper()
-                    value = vocab_diagnostic_result.get(level_key, 0.0) or 0.0
-                    st.metric(level_label, f"{round(value * 100)}%")
+        st.markdown("### 词汇诊断结果解释")
+        st.write(vocab_diagnostic_result.get("main_vocab_problem", ""))
 
-            question_type_map = vocab_diagnostic_result.get("question_type_accuracy_map", {}) or {}
-            if question_type_map:
-                st.markdown("**题型表现**")
-                for raw_key, value in question_type_map.items():
-                    st.write(f"- `{raw_key}`：{round((value or 0.0) * 100)}%")
+        level_cols = st.columns(5)
+        level_keys = [
+            ("L1", "l1_accuracy"),
+            ("L2", "l2_accuracy"),
+            ("L3", "l3_accuracy"),
+            ("L4", "l4_accuracy"),
+            ("L5", "l5_accuracy"),
+        ]
+        for column, (level_code, key) in zip(level_cols, level_keys):
+            with column:
+                st.metric(RESULT_LEVEL_LABELS[level_code], _format_percent(vocab_diagnostic_result.get(key, 0.0)))
 
-            strengths = [item for item in vocab_diagnostic_result.get("strengths", []) if item]
-            risk_flags = [item for item in vocab_diagnostic_result.get("risk_flags", []) if item]
-            recommended_actions = [item for item in vocab_diagnostic_result.get("recommended_actions", []) if item]
+        if vocab_diagnostic_result.get("l5_interpretation"):
+            st.caption(vocab_diagnostic_result.get("l5_interpretation", ""))
 
-            if strengths:
-                st.markdown("**你已经有的优势**")
-                for item in strengths:
-                    st.write(f"- {item}")
-            if risk_flags:
-                st.markdown("**当前要注意的地方**")
-                for item in risk_flags:
-                    st.write(f"- {item}")
-            if recommended_actions:
-                st.markdown("**接下来怎么练更合适**")
-                for item in recommended_actions:
-                    st.write(f"- {item}")
+        question_type_map = vocab_diagnostic_result.get("question_type_accuracy_map_display", {}) or {}
+        if question_type_map:
+            st.markdown("**题型表现**")
+            for label, value in question_type_map.items():
+                st.write(f"- {label}：{_format_percent(value)}")
+
+        strengths = [item for item in vocab_diagnostic_result.get("strengths", []) if item]
+        risk_flags = [item for item in vocab_diagnostic_result.get("risk_flags", []) if item]
+        recommended_actions = [item for item in vocab_diagnostic_result.get("recommended_actions", []) if item]
+
+        if strengths:
+            st.markdown("**你已经有的优势**")
+            for item in strengths:
+                st.write(f"- {item}")
+        if risk_flags:
+            st.markdown("**接下来要注意的地方**")
+            for item in risk_flags:
+                st.write(f"- {item}")
+        if recommended_actions:
+            st.markdown("**词汇训练路径推荐**")
+            for item in recommended_actions:
+                st.write(f"- {item}")
 
     next_actions = [item for item in result.get("next_actions", []) if item]
     if next_actions:
@@ -1461,42 +1642,6 @@ def _render_diagnosis_result(result: dict):
         for item in next_actions:
             st.write(f"- {item}")
 
-    if dimensions:
-        with st.expander("查看六维画像说明", expanded=False):
-            for title, body in dimensions.items():
-                st.markdown(f"### {title}")
-                st.write(body)
-    return
-    card_items = [
-        ("词汇量区间", result.get("vocab_band", "")),
-        ("阅读能力画像", result.get("reading_profile", "")),
-        ("语法基础缺口", result.get("grammar_gap", "")),
-        ("写作基础判断", result.get("writing_profile", "")),
-        ("建议学习轨道", result.get("suggested_track", "")),
-        ("当前成长重点", result.get("growth_focus", "")),
-    ]
-    cards_html = "".join(
-        f"""
-        <div class="student-diagnosis-mini-card">
-            <div class="student-diagnosis-mini-title">{title}</div>
-            <div class="student-diagnosis-mini-body">{body or '待生成'}</div>
-        </div>
-        """
-        for title, body in card_items
-    )
-    st.markdown(
-        f"""
-        <div class="student-home-card">
-            <div class="student-home-kicker">首次诊断结果</div>
-            <div class="student-home-task-title">{result.get("title_label", "")}｜{result.get("stage_label", "")}</div>
-            <p class="student-home-subtitle">{result.get("summary_text", "")}</p>
-            <div class="student-diagnosis-grid">
-                {cards_html}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
     if dimensions:
         with st.expander("查看六维画像说明", expanded=False):
             for title, body in dimensions.items():
@@ -1511,38 +1656,40 @@ def _render_profile_page(home_data: dict):
 
     diagnosis = home_data.get("diagnosis_summary", {})
     if not diagnosis.get("has_diagnosis"):
-        st.info("完成首次诊断后，这里会展示更完整的成长画像。")
+        st.info("完成首次诊断后，这里会显示更完整的成长画像。")
         return
 
     dimensions = diagnosis.get("dimensions", {}) or {}
     vocab_result = diagnosis.get("vocab_diagnostic_result", {}) or {}
-    st.markdown(
-        f"""
-        <div class="student-home-card">
-            <div class="student-home-kicker">当前画像总览</div>
-            <div class="student-home-task-title">{diagnosis.get("title_label", "")} ｜ {diagnosis.get("stage_label", "")}</div>
-            <p class="student-home-subtitle">{diagnosis.get("growth_focus", "")}</p>
-            <p class="student-home-task-desc">{diagnosis.get("suggested_track", "")}</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
-    if not dimensions:
-        st.info("当前画像数据还在整理中，稍后会在这里补齐。")
-        return
+    st.markdown("### 当前画像总览")
+    st.write(diagnosis.get("growth_focus", ""))
+    st.caption(diagnosis.get("suggested_track", ""))
 
     if diagnosis.get("vocab_profile_summary"):
         st.markdown("### 词汇画像")
         st.info(diagnosis.get("vocab_profile_summary"))
         if vocab_result:
             col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("推荐起点", vocab_result.get("recommended_training_start", ""))
-            with col2:
-                st.metric("不确定占比", f"{round((vocab_result.get('uncertain_rate', 0.0) or 0.0) * 100)}%")
-            with col3:
-                st.metric("主要问题", vocab_result.get("main_vocab_problem", ""))
+            _render_summary_metric(
+                col1,
+                "优先训练",
+                vocab_result.get("vocab_training_track_label", "待生成"),
+                vocab_result.get("vocab_training_track_reason", ""),
+            )
+            _render_summary_metric(
+                col2,
+                "答题把握度",
+                vocab_result.get("answer_confidence_label", "待判断"),
+                f"“我不知道”占比 {_format_percent(vocab_result.get('uncertain_rate', 0.0))}",
+            )
+            _render_summary_metric(
+                col3,
+                "当前最该解决",
+                vocab_result.get("basic_vocab_status", "待判断") if vocab_result.get("vocab_training_track") == "basic_survival_vocab" else vocab_result.get("vocab_training_track_label", "待生成"),
+                vocab_result.get("main_vocab_problem", ""),
+            )
+
             strengths = [item for item in vocab_result.get("strengths", []) if item]
             risk_flags = [item for item in vocab_result.get("risk_flags", []) if item]
             recommended_actions = [item for item in vocab_result.get("recommended_actions", []) if item]
@@ -1559,21 +1706,18 @@ def _render_profile_page(home_data: dict):
                 for item in recommended_actions[:3]:
                     st.write(f"- {item}")
 
+    if not dimensions:
+        st.info("当前画像数据还在整理中，稍后会在这里补齐。")
+        return
+
     st.markdown("### 六维画像")
     dimension_items = list(dimensions.items())
-    for start in range(0, len(dimension_items), 2):
+    for start_index in range(0, len(dimension_items), 2):
         columns = st.columns(2)
-        for column, (title, body) in zip(columns, dimension_items[start:start + 2]):
+        for column, (title, body) in zip(columns, dimension_items[start_index:start_index + 2]):
             with column:
-                st.markdown(
-                    f"""
-                    <div class="student-diagnosis-mini-card" style="min-height: 180px;">
-                        <div class="student-diagnosis-mini-title">{title}</div>
-                        <div class="student-diagnosis-mini-body">{body}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                st.markdown(f"**{title}**")
+                st.write(body)
 
     st.markdown("### 下一步建议")
     next_steps = [
@@ -1583,7 +1727,6 @@ def _render_profile_page(home_data: dict):
     ]
     for item in [text for text in next_steps if text]:
         st.write(f"- {item}")
-
 
 
 def _render_diagnostic_vocab_preview_box():
@@ -2589,37 +2732,120 @@ def _render_initial_diagnosis(student_id: int):
         )
 
     default_answers = answers_by_module.get(module["key"], {})
+    is_vocab_module = module["key"] == "vocab"
+    module_questions = module["questions"]
+    vocab_page = 0
+    total_vocab_pages = 1
+    page_questions = module_questions
+    page_start_index = 0
+    if is_vocab_module:
+        total_vocab_pages = max(1, (len(module_questions) + VOCAB_DIAG_PAGE_SIZE - 1) // VOCAB_DIAG_PAGE_SIZE)
+        vocab_page = int(st.session_state.get("student_diagnosis_vocab_page", 0) or 0)
+        vocab_page = max(0, min(vocab_page, total_vocab_pages - 1))
+        st.session_state["student_diagnosis_vocab_page"] = vocab_page
+        page_start_index = vocab_page * VOCAB_DIAG_PAGE_SIZE
+        page_questions = module_questions[page_start_index: page_start_index + VOCAB_DIAG_PAGE_SIZE]
+        st.markdown(
+            f"""
+            <div class="student-diagnosis-page-summary">
+                <div class="student-diagnosis-page-title">{_build_vocab_page_title(page_questions)}</div>
+                <div class="student-diagnosis-page-meta">
+                    第 {vocab_page + 1} / {total_vocab_pages} 页 · 本页 {len(page_questions)} 题 · {_build_vocab_page_meta(page_questions)}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        missing_ids = st.session_state.get("student_diagnosis_missing_question_ids", []) or []
+        missing_page = st.session_state.get("student_diagnosis_missing_page")
+        if missing_ids and missing_page == vocab_page:
+            question_number_map = {
+                question["id"]: page_start_index + index + 1
+                for index, question in enumerate(page_questions)
+            }
+            missing_links = "".join(
+                f'<a href="#{_build_question_anchor_id(question_id)}">定位到第 {question_number_map.get(question_id, "?")} 题</a>'
+                for question_id in missing_ids
+            )
+            st.markdown(
+                f"""
+                <div class="student-diagnosis-missing-box">
+                    <div class="student-diagnosis-missing-title">这一页还有题没做完</div>
+                    <div class="student-home-task-desc">请先完成下面这些题，再继续下一页。</div>
+                    <div class="student-diagnosis-missing-links">{missing_links}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            first_missing_id = _build_question_anchor_id(missing_ids[0])
+            components.html(
+                f"""
+                <script>
+                const target = parent.document.getElementById("{first_missing_id}");
+                if (target) {{
+                    target.scrollIntoView({{behavior: "smooth", block: "center"}});
+                }}
+                </script>
+                """,
+                height=0,
+            )
+
     with st.form(f"initial_diagnosis_form_{module['key']}"):
         current_answers = {}
-        for question in module["questions"]:
+        for question_index, question in enumerate(page_questions, start=page_start_index + 1):
             default_value = default_answers.get(question["id"])
-            if module["key"] == "vocab":
-                if question.get("sentence"):
-                    st.caption(question.get("sentence"))
+            if is_vocab_module:
+                _render_vocab_question_card(question, question_index)
             current_answers[question["id"]] = st.radio(
-                question["prompt"],
+                "请选择答案",
                 question["options"],
                 index=question["options"].index(default_value) if default_value in question["options"] else None,
                 key=f"diagnosis_{module['key']}_{question['id']}",
+                label_visibility="collapsed" if is_vocab_module else "visible",
             )
 
-        button_cols = st.columns(3)
+        button_cols = st.columns(4 if is_vocab_module else 3)
         with button_cols[0]:
-            go_previous = st.form_submit_button("上一部分", disabled=step == 0, use_container_width=True)
+            previous_label = "上一页" if is_vocab_module and vocab_page > 0 else "上一部分"
+            previous_disabled = (is_vocab_module and vocab_page == 0 and step == 0) or (not is_vocab_module and step == 0)
+            go_previous = st.form_submit_button(previous_label, disabled=previous_disabled, use_container_width=True)
         with button_cols[1]:
-            button_label = "完成诊断" if step == len(definition) - 1 else "进入下一部分"
+            if is_vocab_module and vocab_page < total_vocab_pages - 1:
+                button_label = "下一页"
+            else:
+                button_label = "完成诊断" if step == len(definition) - 1 else "进入下一部分"
             submitted = st.form_submit_button(button_label, type="primary", use_container_width=True)
-        with button_cols[2]:
+        if is_vocab_module:
+            with button_cols[2]:
+                st.markdown(
+                    f"""
+                    <div style="padding-top: 10px; color: #486581; font-size: 14px;">
+                        已完成 {vocab_page + 1} / {total_vocab_pages} 页
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        with button_cols[3 if is_vocab_module else 2]:
             pause = st.form_submit_button("暂停本轮诊断", use_container_width=True)
 
     if go_previous:
+        st.session_state.pop("student_diagnosis_missing_question_ids", None)
+        st.session_state.pop("student_diagnosis_missing_page", None)
         answers_by_module[module["key"]] = {
             question_id: answer
-            for question_id, answer in current_answers.items()
+            for question_id, answer in {**default_answers, **current_answers}.items()
             if answer
         }
         st.session_state["student_diagnosis_answers"] = answers_by_module
-        st.session_state["student_diagnosis_step"] = max(step - 1, 0)
+        if is_vocab_module and vocab_page > 0:
+            st.session_state["student_diagnosis_vocab_page"] = vocab_page - 1
+        else:
+            st.session_state["student_diagnosis_step"] = max(step - 1, 0)
+            if is_vocab_module:
+                st.session_state["student_diagnosis_vocab_page"] = 0
+            elif step > 0 and definition[step - 1]["key"] == "vocab":
+                previous_vocab_pages = max(1, (len(definition[step - 1]["questions"]) + VOCAB_DIAG_PAGE_SIZE - 1) // VOCAB_DIAG_PAGE_SIZE)
+                st.session_state["student_diagnosis_vocab_page"] = previous_vocab_pages - 1
         st.rerun()
 
     if pause:
@@ -2627,16 +2853,30 @@ def _render_initial_diagnosis(student_id: int):
         st.rerun()
 
     if submitted:
-        unanswered = [question["prompt"] for question in module["questions"] if not current_answers.get(question["id"])]
+        unanswered = [question["prompt"] for question in page_questions if not current_answers.get(question["id"])]
         if unanswered:
-            st.warning(f"这一部分还有 {len(unanswered)} 道题未作答，请完成后再继续。")
-            return
+            st.session_state["student_diagnosis_missing_question_ids"] = [
+                question["id"] for question in page_questions if not current_answers.get(question["id"])
+            ]
+            st.session_state["student_diagnosis_missing_page"] = vocab_page if is_vocab_module else None
+            st.rerun()
 
-        answers_by_module[module["key"]] = current_answers
+        st.session_state.pop("student_diagnosis_missing_question_ids", None)
+        st.session_state.pop("student_diagnosis_missing_page", None)
+        answers_by_module[module["key"]] = {
+            **default_answers,
+            **current_answers,
+        }
         st.session_state["student_diagnosis_answers"] = answers_by_module
+
+        if is_vocab_module and vocab_page < total_vocab_pages - 1:
+            st.session_state["student_diagnosis_vocab_page"] = vocab_page + 1
+            st.rerun()
 
         if step < len(definition) - 1:
             st.session_state["student_diagnosis_step"] = step + 1
+            if is_vocab_module:
+                st.session_state["student_diagnosis_vocab_page"] = 0
             next_module = definition[step + 1]
             module_started_at_map = st.session_state.setdefault("student_diagnosis_module_started_at_map", {})
             module_started_at_map.setdefault(next_module["key"], datetime.utcnow().isoformat())
