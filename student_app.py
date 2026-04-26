@@ -1239,6 +1239,9 @@ def _clear_diagnosis_session_state():
         "student_diagnosis_step",
         "student_diagnosis_answers",
         "student_diagnosis_definition",
+        "student_diagnosis_started_at",
+        "student_diagnosis_module_started_at",
+        "student_diagnosis_module_started_at_map",
     ]:
         st.session_state.pop(key, None)
 
@@ -1297,6 +1300,7 @@ def _build_saved_diagnosis_result(student_id: int):
     return {
         "scores": latest_record.get("module_scores") or {},
         "totals": latest_record.get("module_totals") or {},
+        "vocab_profile_summary": profile_payload.get("vocab_profile_summary") or "",
         "vocab_diagnostic_result": profile_payload.get("vocab_diagnostic_result") or {},
         "module_reports": profile_payload.get("module_reports") or {},
         "priority_module": profile_payload.get("priority_module"),
@@ -1348,6 +1352,7 @@ def _render_diagnosis_module_overview(definition, active_step: int | None = None
 def _render_diagnosis_result(result: dict):
     dimensions = result.get("dimensions", {})
     module_reports = result.get("module_reports", {})
+    vocab_profile_summary = result.get("vocab_profile_summary", "")
     vocab_diagnostic_result = result.get("vocab_diagnostic_result") or {}
     card_items = [
         ("词汇量区间", result.get("vocab_band", "")),
@@ -1404,6 +1409,9 @@ def _render_diagnosis_result(result: dict):
             st.progress(ratio)
 
     if vocab_diagnostic_result:
+        if vocab_profile_summary:
+            st.markdown("### 词汇画像摘要")
+            st.info(vocab_profile_summary)
         with st.expander("查看词汇诊断拆解", expanded=False):
             st.write("推荐训练起点", vocab_diagnostic_result.get("recommended_training_start", ""))
             st.write("主要词汇问题", vocab_diagnostic_result.get("main_vocab_problem", ""))
@@ -1416,6 +1424,9 @@ def _render_diagnosis_result(result: dict):
             })
             st.write("题型正确率", vocab_diagnostic_result.get("question_type_accuracy_map", {}))
             st.write("不确定占比", vocab_diagnostic_result.get("uncertain_rate", 0.0))
+            st.write("优势信号", vocab_diagnostic_result.get("strengths", []))
+            st.write("风险信号", vocab_diagnostic_result.get("risk_flags", []))
+            st.write("建议动作", vocab_diagnostic_result.get("recommended_actions", []))
 
     next_actions = [item for item in result.get("next_actions", []) if item]
     if next_actions:
@@ -2415,6 +2426,9 @@ def _render_initial_diagnosis(student_id: int):
             st.session_state["student_diagnosis_active"] = True
             st.session_state["student_diagnosis_step"] = 0
             st.session_state["student_diagnosis_answers"] = {}
+            st.session_state["student_diagnosis_started_at"] = datetime.utcnow().isoformat()
+            st.session_state["student_diagnosis_module_started_at"] = datetime.utcnow().isoformat()
+            st.session_state["student_diagnosis_module_started_at_map"] = {}
             st.rerun()
         return
 
@@ -2468,6 +2482,9 @@ def _render_initial_diagnosis(student_id: int):
             st.session_state["student_diagnosis_active"] = True
             st.session_state["student_diagnosis_step"] = 0
             st.session_state["student_diagnosis_answers"] = {}
+            st.session_state["student_diagnosis_started_at"] = datetime.utcnow().isoformat()
+            st.session_state["student_diagnosis_module_started_at"] = datetime.utcnow().isoformat()
+            st.session_state["student_diagnosis_module_started_at_map"] = {}
             st.rerun()
         return
 
@@ -2483,6 +2500,10 @@ def _render_initial_diagnosis(student_id: int):
     step = st.session_state.get("student_diagnosis_step", 0)
     answers_by_module = st.session_state.setdefault("student_diagnosis_answers", {})
     module = definition[step]
+    module_started_at_map = st.session_state.setdefault("student_diagnosis_module_started_at_map", {})
+    if module["key"] not in module_started_at_map:
+        module_started_at_map[module["key"]] = datetime.utcnow().isoformat()
+    st.session_state["student_diagnosis_module_started_at"] = module_started_at_map[module["key"]]
 
     _render_diagnosis_module_overview(definition, active_step=step)
     st.progress((step + 1) / len(definition))
@@ -2566,11 +2587,24 @@ def _render_initial_diagnosis(student_id: int):
 
         if step < len(definition) - 1:
             st.session_state["student_diagnosis_step"] = step + 1
+            next_module = definition[step + 1]
+            module_started_at_map = st.session_state.setdefault("student_diagnosis_module_started_at_map", {})
+            module_started_at_map.setdefault(next_module["key"], datetime.utcnow().isoformat())
             st.rerun()
 
         result = evaluate_initial_diagnosis(answers_by_module, definition=definition)
         try:
-            dbs.save_initial_diagnosis_result(student_id, result)
+            dbs.save_initial_diagnosis_result(
+                student_id,
+                result,
+                module_answers=answers_by_module,
+                definition=definition,
+                diagnostic_meta={
+                    "started_at": st.session_state.get("student_diagnosis_started_at"),
+                    "submitted_at": datetime.utcnow().isoformat(),
+                    "module_started_at_map": st.session_state.get("student_diagnosis_module_started_at_map", {}),
+                },
+            )
         except Exception as exc:
             st.error("诊断结果保存失败，请联系管理员检查 Supabase 配置。")
             st.exception(exc)
