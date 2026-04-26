@@ -404,6 +404,52 @@ def _build_vocab_diagnostic_result(questions: List[Dict[str, Any]], answers: Dic
         for level in ["L1", "L2", "L3", "L4", "L5"]
         if level_totals[level]
     )
+    strengths = []
+    risk_flags = []
+    recommended_actions = []
+
+    if high_frequency_total and high_frequency_accuracy >= 0.8:
+        strengths.append("高频核心词识别比较稳定")
+    if reading_vocab_total and reading_vocab_accuracy >= 0.7:
+        strengths.append("阅读高频词具备一定储备")
+    if question_type_totals["confusable_choice"] and confusable_accuracy >= 0.7:
+        strengths.append("易混词辨析表现较稳")
+    if question_type_totals["polysemy_context"] and polysemy_accuracy >= 0.6:
+        strengths.append("熟词生义语境判断已有基础")
+    if uncertain_rate <= 0.08:
+        strengths.append("答题确定性较高")
+
+    if not strengths:
+        strengths.append("基础识别能力已经建立，但还需要继续拉开层级差异")
+
+    if uncertain_rate >= 0.2:
+        risk_flags.append("不确定选项使用偏多，说明词义判断稳定性不足")
+        recommended_actions.append("先从高频词短测和错题回看开始，减少看到词但不敢判断的情况")
+    if high_frequency_total and high_frequency_accuracy < 0.65:
+        risk_flags.append("L1-L2 高频核心词掌握还不够稳")
+        recommended_actions.append("优先回到 L1-L2 高频词巩固，先稳住基础词义识别")
+    if reading_vocab_total and reading_vocab_accuracy < 0.6:
+        risk_flags.append("L3-L4 阅读高频词储备不足")
+        recommended_actions.append("增加阅读高频词的语境辨义训练，避免只会孤立记词")
+    if question_type_totals["polysemy_context"] and polysemy_accuracy < 0.5:
+        risk_flags.append("熟词生义题型偏弱")
+        recommended_actions.append("后续训练里单独加入熟词生义语境判断题")
+    if question_type_totals["confusable_choice"] and confusable_accuracy < 0.5:
+        risk_flags.append("易混词辨析偏弱")
+        recommended_actions.append("后续训练里补充近形近义词辨析，减少混淆性错误")
+
+    if not recommended_actions:
+        recommended_actions.append("可以从当前推荐层级继续做分层巩固，并逐步提高阅读场景迁移比例")
+
+    if not risk_flags:
+        risk_flags.append("当前没有明显单点塌陷，更需要继续扩大词汇覆盖面和迁移使用")
+
+    profile_summary = (
+        f"词汇题共答对 {correct_count}/{total_count}，"
+        f"高频核心词正确率 {round(high_frequency_accuracy * 100)}%，"
+        f"阅读词汇正确率 {round(reading_vocab_accuracy * 100)}%，"
+        f"不确定占比 {round(uncertain_rate * 100)}%。"
+    )
     summary = (
         f"本轮词汇诊断共答对 {correct_count}/{total_count}，"
         f"分层表现为 {level_breakdown}。"
@@ -431,6 +477,14 @@ def _build_vocab_diagnostic_result(questions: List[Dict[str, Any]], answers: Dic
         "recommended_training_start": recommended_training_start,
         "level_accuracy_map": level_accuracy_map,
         "question_type_accuracy_map": question_type_accuracy_map,
+        "level_correct_counts": dict(level_correct),
+        "level_total_counts": dict(level_totals),
+        "question_type_correct_counts": dict(question_type_correct),
+        "question_type_total_counts": dict(question_type_totals),
+        "strengths": strengths,
+        "risk_flags": risk_flags,
+        "recommended_actions": recommended_actions,
+        "profile_summary": profile_summary,
         "module_report": {
             "score": correct_count,
             "total": total_count,
@@ -444,6 +498,7 @@ def _build_vocab_diagnostic_result(questions: List[Dict[str, Any]], answers: Dic
             "main_vocab_problem": main_vocab_problem,
             "level_accuracy_map": level_accuracy_map,
             "question_type_accuracy_map": question_type_accuracy_map,
+            "profile_summary": profile_summary,
         },
     }
 
@@ -578,6 +633,7 @@ def evaluate_initial_diagnosis(
         "stage_label": stage_label,
         "summary_text": summary_text,
         "next_actions": next_actions,
+        "vocab_profile_summary": vocab_result.get("profile_summary", ""),
         "vocab_diagnostic_result": vocab_result,
         "dimensions": {
             "词汇储备": module_reports["vocab"]["summary"],
