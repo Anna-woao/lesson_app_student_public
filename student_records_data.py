@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 from supabase_client import get_admin_supabase_client, get_supabase_client
 
 
+UNCERTAIN_OPTION = "\u4e0d\u786e\u5b9a"
+
+
 def _fetch_all_rows(query_builder, page_size: int = 1000):
     start = 0
     all_rows = []
@@ -482,7 +485,7 @@ def _build_diagnostic_vocab_answer_rows(
                 "item_id": question.get("id"),
                 "selected_answer": selected_answer,
                 "is_correct": selected_answer == correct_answer,
-                "is_uncertain": selected_answer == "不确定",
+                "is_uncertain": selected_answer == UNCERTAIN_OPTION,
                 # The current UI submits the whole vocab module in one form, so
                 # per-question timing is intentionally left null instead of faking precision.
                 "time_spent_seconds": None,
