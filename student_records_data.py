@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from supabase_client import get_admin_supabase_client, get_supabase_client
 
 
@@ -373,7 +375,133 @@ def get_latest_profile_snapshot(student_id: int):
     return rows[0] if rows else None
 
 
-def save_initial_diagnosis_result(student_id: int, diagnosis_result: dict):
+def get_latest_diagnostic_vocab_result(student_id: int):
+    supabase = get_admin_supabase_client() or get_supabase_client()
+    try:
+        resp = (
+            supabase.table("diagnostic_vocab_results")
+            .select("*")
+            .eq("student_id", student_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        return None
+    rows = resp.data or []
+    return rows[0] if rows else None
+
+
+def get_diagnostic_vocab_answers(diagnostic_id: int):
+    supabase = get_admin_supabase_client() or get_supabase_client()
+    try:
+        resp = (
+            supabase.table("diagnostic_vocab_answers")
+            .select("*")
+            .eq("diagnostic_id", diagnostic_id)
+            .order("id", desc=False)
+            .execute()
+        )
+    except Exception:
+        return []
+    return resp.data or []
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _is_missing_table_error(exc: Exception, table_name: str) -> bool:
+    text = str(exc)
+    return "PGRST205" in text and table_name in text
+
+
+def _build_diagnostic_vocab_result_payload(student_id: int, diagnostic_id: int, diagnosis_result: dict, diagnostic_meta: dict | None = None):
+    vocab_result = diagnosis_result.get("vocab_diagnostic_result") or {}
+    diagnostic_meta = diagnostic_meta or {}
+    return {
+        "diagnostic_id": diagnostic_id,
+        "student_id": student_id,
+        "total_scored_items": vocab_result.get("total_scored_items", 0),
+        "correct_count": vocab_result.get("correct_count", 0),
+        "overall_accuracy": vocab_result.get("overall_accuracy", 0.0),
+        "l1_accuracy": vocab_result.get("l1_accuracy", 0.0),
+        "l2_accuracy": vocab_result.get("l2_accuracy", 0.0),
+        "l3_accuracy": vocab_result.get("l3_accuracy", 0.0),
+        "l4_accuracy": vocab_result.get("l4_accuracy", 0.0),
+        "l5_accuracy": vocab_result.get("l5_accuracy", 0.0),
+        "high_frequency_accuracy": vocab_result.get("high_frequency_accuracy", 0.0),
+        "reading_vocab_accuracy": vocab_result.get("reading_vocab_accuracy", 0.0),
+        "polysemy_accuracy": vocab_result.get("polysemy_accuracy", 0.0),
+        "confusable_accuracy": vocab_result.get("confusable_accuracy", 0.0),
+        "uncertain_rate": vocab_result.get("uncertain_rate", 0.0),
+        "estimated_vocab_range": vocab_result.get("estimated_vocab_range", ""),
+        "vocab_level_label": vocab_result.get("vocab_level_label", ""),
+        "main_vocab_problem": vocab_result.get("main_vocab_problem", ""),
+        "recommended_training_start": vocab_result.get("recommended_training_start", ""),
+        "self_check_json": {
+            "strengths": vocab_result.get("strengths", []),
+            "risk_flags": vocab_result.get("risk_flags", []),
+            "recommended_actions": vocab_result.get("recommended_actions", []),
+            "level_accuracy_map": vocab_result.get("level_accuracy_map", {}),
+            "question_type_accuracy_map": vocab_result.get("question_type_accuracy_map", {}),
+            "level_correct_counts": vocab_result.get("level_correct_counts", {}),
+            "level_total_counts": vocab_result.get("level_total_counts", {}),
+            "question_type_correct_counts": vocab_result.get("question_type_correct_counts", {}),
+            "question_type_total_counts": vocab_result.get("question_type_total_counts", {}),
+            "question_timing_supported": False,
+            "timing_note": "Current first-diagnosis UI is module-level. Per-question timing is reserved but not yet captured.",
+            "diagnostic_meta": diagnostic_meta,
+        },
+        "updated_at": _now_iso(),
+    }
+
+
+def _build_diagnostic_vocab_answer_rows(
+    *,
+    student_id: int,
+    diagnostic_id: int,
+    definition: list[dict],
+    module_answers: dict,
+):
+    vocab_module = next((module for module in definition if module.get("key") == "vocab"), None)
+    if not vocab_module:
+        return []
+
+    answers = module_answers.get("vocab", {}) or {}
+    rows = []
+    for question in vocab_module.get("questions", []):
+        selected_answer = answers.get(question["id"])
+        if not selected_answer:
+            continue
+        correct_answer = question.get("answer")
+        rows.append(
+            {
+                "diagnostic_id": diagnostic_id,
+                "student_id": student_id,
+                "item_id": question.get("id"),
+                "selected_answer": selected_answer,
+                "is_correct": selected_answer == correct_answer,
+                "is_uncertain": selected_answer == "不确定",
+                # The current UI submits the whole vocab module in one form, so
+                # per-question timing is intentionally left null instead of faking precision.
+                "time_spent_seconds": None,
+                "question_type": question.get("question_type"),
+                "level": question.get("level"),
+                "diagnostic_tag": question.get("diagnostic_tag"),
+            }
+        )
+    return rows
+
+
+def save_initial_diagnosis_result(
+    student_id: int,
+    diagnosis_result: dict,
+    *,
+    module_answers: dict | None = None,
+    definition: list[dict] | None = None,
+    diagnostic_meta: dict | None = None,
+):
     supabase = get_admin_supabase_client() or get_supabase_client()
 
     record_payload = {
@@ -392,6 +520,55 @@ def save_initial_diagnosis_result(student_id: int, diagnosis_result: dict):
     record = record_rows[0] if record_rows else None
     record_id = record.get("id") if record else None
 
+    vocab_result_record = None
+    vocab_answer_rows = []
+    if record_id and diagnosis_result.get("vocab_diagnostic_result"):
+        vocab_result_payload = _build_diagnostic_vocab_result_payload(
+            student_id,
+            record_id,
+            diagnosis_result,
+            diagnostic_meta=diagnostic_meta,
+        )
+        try:
+            vocab_result_resp = (
+                supabase.table("diagnostic_vocab_results")
+                .upsert(vocab_result_payload, on_conflict="diagnostic_id")
+                .execute()
+            )
+        except Exception as exc:
+            if _is_missing_table_error(exc, "diagnostic_vocab_results"):
+                raise RuntimeError(
+                    "Supabase 缺少 diagnostic_vocab_results 表。请先执行 "
+                    "D:/lesson_app_student_public/supabase_initial_diagnosis_migration.sql 中新增的词汇诊断结果迁移 SQL。"
+                ) from exc
+            raise
+        vocab_result_rows = vocab_result_resp.data or []
+        vocab_result_record = vocab_result_rows[0] if vocab_result_rows else None
+
+        if definition is not None and module_answers is not None:
+            vocab_answer_rows = _build_diagnostic_vocab_answer_rows(
+                student_id=student_id,
+                diagnostic_id=record_id,
+                definition=definition,
+                module_answers=module_answers,
+            )
+            if vocab_answer_rows:
+                try:
+                    (
+                        supabase.table("diagnostic_vocab_answers")
+                        .delete()
+                        .eq("diagnostic_id", record_id)
+                        .execute()
+                    )
+                    supabase.table("diagnostic_vocab_answers").insert(vocab_answer_rows).execute()
+                except Exception as exc:
+                    if _is_missing_table_error(exc, "diagnostic_vocab_answers"):
+                        raise RuntimeError(
+                            "Supabase 缺少 diagnostic_vocab_answers 表。请先执行 "
+                            "D:/lesson_app_student_public/supabase_initial_diagnosis_migration.sql 中新增的词汇答题记录迁移 SQL。"
+                        ) from exc
+                    raise
+
     snapshot_payload = {
         "student_id": student_id,
         "source_record_id": record_id,
@@ -407,6 +584,7 @@ def save_initial_diagnosis_result(student_id: int, diagnosis_result: dict):
             "reading_profile": diagnosis_result.get("reading_profile"),
             "grammar_gap": diagnosis_result.get("grammar_gap"),
             "writing_profile": diagnosis_result.get("writing_profile"),
+            "vocab_profile_summary": diagnosis_result.get("vocab_profile_summary", ""),
             "vocab_diagnostic_result": diagnosis_result.get("vocab_diagnostic_result", {}),
             "module_reports": diagnosis_result.get("module_reports", {}),
             "priority_module": diagnosis_result.get("priority_module"),
@@ -414,6 +592,7 @@ def save_initial_diagnosis_result(student_id: int, diagnosis_result: dict):
             "overall_accuracy": diagnosis_result.get("overall_accuracy"),
             "overall_summary": diagnosis_result.get("overall_summary"),
             "next_actions": diagnosis_result.get("next_actions", []),
+            "diagnostic_meta": diagnostic_meta or {},
         },
     }
     snapshot_resp = supabase.table("student_profile_snapshots").insert(snapshot_payload).execute()
@@ -422,6 +601,8 @@ def save_initial_diagnosis_result(student_id: int, diagnosis_result: dict):
 
     return {
         "record": record,
+        "vocab_result": vocab_result_record,
+        "vocab_answers_saved_count": len(vocab_answer_rows),
         "snapshot": snapshot,
     }
 
