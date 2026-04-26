@@ -65,6 +65,7 @@ QUESTION_TYPES_WITH_OPTION_PREVIEW = {
     "polysemy_context",
     "confusable_choice",
 }
+UNCERTAIN_OPTION = "\u4e0d\u786e\u5b9a"
 
 
 def _safe_text(value: Any) -> str:
@@ -453,7 +454,7 @@ def build_diagnostic_choice_options(row: dict, *, randomizer: random.Random | No
         _safe_text(row.get("wrong_option_1")),
         _safe_text(row.get("wrong_option_2")),
         _safe_text(row.get("wrong_option_3")),
-        "不确定",
+        UNCERTAIN_OPTION,
     ]
     deduped = []
     for option in options:
@@ -473,7 +474,7 @@ def build_diagnostic_question_payload(
 ) -> dict:
     payload = dict(row)
     payload["options"] = build_diagnostic_choice_options(row, randomizer=randomizer)
-    payload["has_uncertain_option"] = "不确定" in payload["options"]
+    payload["has_uncertain_option"] = UNCERTAIN_OPTION in payload["options"]
     payload["shows_sentence"] = _safe_text(row.get("question_type")) in QUESTION_TYPES_REQUIRING_SENTENCE
     return payload
 
