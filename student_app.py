@@ -9,8 +9,8 @@ import streamlit.components.v1 as components
 
 import db_student as dbs
 from student_diagnosis_service import (
+    build_initial_diagnosis_definition,
     evaluate_initial_diagnosis,
-    get_initial_diagnosis_definition,
 )
 from lesson_html_renderer import build_downloadable_lesson_html, parse_lesson_text_to_parts
 from student_home_viewmodel import build_student_home_viewmodel
@@ -1238,8 +1238,52 @@ def _clear_diagnosis_session_state():
         "student_diagnosis_active",
         "student_diagnosis_step",
         "student_diagnosis_answers",
+        "student_diagnosis_definition",
     ]:
         st.session_state.pop(key, None)
+
+
+def _prepare_initial_diagnosis_definition(*, force_refresh: bool = False):
+    if not force_refresh:
+        cached_definition = st.session_state.get("student_diagnosis_definition")
+        if cached_definition:
+            return cached_definition
+
+    vocab_questions = dbs.get_diagnostic_vocab_items_for_test()
+    definition = build_initial_diagnosis_definition(vocab_questions)
+    st.session_state["student_diagnosis_definition"] = definition
+    return definition
+
+
+def _render_diagnostic_vocab_bank_status():
+    st.markdown("### 首次诊断词汇题库状态")
+    try:
+        status = dbs.get_diagnostic_vocab_bank_status()
+    except Exception as exc:
+        st.error(f"题库状态读取失败：{exc}")
+        return {"ready_for_diagnosis": False, "load_error": str(exc)}
+
+    total_count = status.get("total_count", 0)
+    ready_for_diagnosis = bool(status.get("ready_for_diagnosis"))
+    if ready_for_diagnosis:
+        st.success(f"已检测到 {total_count} 道正式词汇诊断题，首次诊断可以从 Supabase 正常抽题。")
+    else:
+        st.warning("当前正式词汇诊断题库为空，首次诊断还不能从 Supabase 抽题。")
+
+    cols = st.columns(4)
+    with cols[0]:
+        st.metric("题库总数", total_count)
+    with cols[1]:
+        st.metric("Anchor 题", status.get("anchor_count", 0))
+    with cols[2]:
+        st.metric("Active 题", status.get("active_count", 0))
+    with cols[3]:
+        st.metric("Inactive 题", status.get("inactive_count", 0))
+
+    st.write("L1-L5 分布", status.get("level_counts", {}))
+    st.write("题型分布", status.get("question_type_counts", {}))
+    st.write("版本分布", status.get("version_counts", {}))
+    return status
 
 
 def _build_saved_diagnosis_result(student_id: int):
@@ -1253,6 +1297,7 @@ def _build_saved_diagnosis_result(student_id: int):
     return {
         "scores": latest_record.get("module_scores") or {},
         "totals": latest_record.get("module_totals") or {},
+        "vocab_diagnostic_result": profile_payload.get("vocab_diagnostic_result") or {},
         "module_reports": profile_payload.get("module_reports") or {},
         "priority_module": profile_payload.get("priority_module"),
         "strongest_module": profile_payload.get("strongest_module"),
@@ -1303,6 +1348,7 @@ def _render_diagnosis_module_overview(definition, active_step: int | None = None
 def _render_diagnosis_result(result: dict):
     dimensions = result.get("dimensions", {})
     module_reports = result.get("module_reports", {})
+    vocab_diagnostic_result = result.get("vocab_diagnostic_result") or {}
     card_items = [
         ("词汇量区间", result.get("vocab_band", "")),
         ("阅读能力画像", result.get("reading_profile", "")),
@@ -1356,6 +1402,20 @@ def _render_diagnosis_result(result: dict):
                 unsafe_allow_html=True,
             )
             st.progress(ratio)
+
+    if vocab_diagnostic_result:
+        with st.expander("查看词汇诊断拆解", expanded=False):
+            st.write("推荐训练起点", vocab_diagnostic_result.get("recommended_training_start", ""))
+            st.write("主要词汇问题", vocab_diagnostic_result.get("main_vocab_problem", ""))
+            st.write("分层正确率", {
+                "L1": vocab_diagnostic_result.get("l1_accuracy", 0.0),
+                "L2": vocab_diagnostic_result.get("l2_accuracy", 0.0),
+                "L3": vocab_diagnostic_result.get("l3_accuracy", 0.0),
+                "L4": vocab_diagnostic_result.get("l4_accuracy", 0.0),
+                "L5": vocab_diagnostic_result.get("l5_accuracy", 0.0),
+            })
+            st.write("题型正确率", vocab_diagnostic_result.get("question_type_accuracy_map", {}))
+            st.write("不确定占比", vocab_diagnostic_result.get("uncertain_rate", 0.0))
 
     next_actions = [item for item in result.get("next_actions", []) if item]
     if next_actions:
@@ -2330,6 +2390,195 @@ def main():
     else:
         _render_home_page(home_data)
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+def _render_initial_diagnosis(student_id: int):
+    _render_section_anchor("initial_diagnosis")
+    st.header("首次诊断")
+    _render_section_focus_badge("initial_diagnosis")
+
+    flash_result = st.session_state.pop("student_diagnosis_flash", None)
+    if flash_result:
+        _render_diagnosis_result(flash_result)
+
+    saved_result = _build_saved_diagnosis_result(student_id)
+    if saved_result and not st.session_state.get("student_diagnosis_active", False):
+        st.info("你已经完成过一次首次诊断，下面展示的是当前保存的诊断结果。")
+        _render_diagnosis_result(saved_result)
+        if st.button("重新做一次首次诊断", key="restart_initial_diagnosis"):
+            _clear_diagnosis_session_state()
+            try:
+                _prepare_initial_diagnosis_definition(force_refresh=True)
+            except Exception as exc:
+                st.error(f"正式诊断题库重新加载失败：{exc}")
+                return
+            st.session_state["student_diagnosis_active"] = True
+            st.session_state["student_diagnosis_step"] = 0
+            st.session_state["student_diagnosis_answers"] = {}
+            st.rerun()
+        return
+
+    if not st.session_state.get("student_diagnosis_active", False):
+        bank_status = _render_diagnostic_vocab_bank_status()
+        overview_definition = None
+        if bank_status.get("ready_for_diagnosis"):
+            try:
+                overview_definition = _prepare_initial_diagnosis_definition(force_refresh=True)
+            except Exception as exc:
+                st.error(f"正式诊断定义加载失败：{exc}")
+
+        st.markdown(
+            """
+            <div class="student-home-card">
+                <div class="student-home-kicker">诊断说明</div>
+                <div class="student-home-task-title">先用一轮 10-15 分钟的轻量诊断，帮你找到更合适的学习起点</div>
+                <p class="student-home-subtitle">
+                    这次会看四个模块：词汇、阅读、语法基础、写作基础。
+                    诊断结束后，系统会生成你的初始画像，并把首页任务切到更适合你的学习轨道。
+                </p>
+                <p class="student-home-task-desc">
+                    当前阶段先重视“看清起点”，不追求一次测得很全；后面会随着训练继续更新。
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if overview_definition:
+            _render_diagnosis_module_overview(overview_definition)
+        intro_col1, intro_col2, intro_col3 = st.columns(3)
+        with intro_col1:
+            st.metric("诊断模块", len(overview_definition or []))
+        with intro_col2:
+            st.metric("总题数", sum(len(module.get("questions", [])) for module in (overview_definition or [])))
+        with intro_col3:
+            st.metric("预计时长", f"{sum(module.get('estimated_minutes', 3) for module in (overview_definition or []))} 分钟")
+
+        _render_diagnostic_vocab_preview_box()
+
+        st.info("建议一次完成，中途也可以暂停；重新进入后会从头开始这一轮诊断。")
+        if st.button("开始首次诊断", key="start_initial_diagnosis", type="primary"):
+            if not bank_status.get("ready_for_diagnosis"):
+                st.error("正式词汇诊断题库还没有准备好，当前不能开始首次诊断。请先确认 Supabase 中已有 diagnostic_vocab_items 数据。")
+                return
+            try:
+                _prepare_initial_diagnosis_definition(force_refresh=True)
+            except Exception as exc:
+                st.error(f"首次诊断无法启动：{exc}")
+                return
+            st.session_state["student_diagnosis_active"] = True
+            st.session_state["student_diagnosis_step"] = 0
+            st.session_state["student_diagnosis_answers"] = {}
+            st.rerun()
+        return
+
+    definition = st.session_state.get("student_diagnosis_definition")
+    if not definition:
+        try:
+            definition = _prepare_initial_diagnosis_definition(force_refresh=True)
+        except Exception as exc:
+            st.error(f"首次诊断题库加载失败，无法继续：{exc}")
+            _clear_diagnosis_session_state()
+            return
+
+    step = st.session_state.get("student_diagnosis_step", 0)
+    answers_by_module = st.session_state.setdefault("student_diagnosis_answers", {})
+    module = definition[step]
+
+    _render_diagnosis_module_overview(definition, active_step=step)
+    st.progress((step + 1) / len(definition))
+    st.subheader(f"{step + 1}. {module['title']}")
+    st.write(module["intro"])
+    focus_points = module.get("focus_points") or []
+    if focus_points:
+        st.markdown(
+            f"""
+            <div class="student-home-card">
+                <div class="student-home-kicker">本模块关注点</div>
+                <div class="student-home-task-title">{module.get("short_title", module["title"])}</div>
+                <p class="student-home-task-desc">{' / '.join(focus_points)}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    if module.get("question_count_summary"):
+        st.caption(module.get("question_count_summary"))
+    if module.get("passage"):
+        st.markdown(
+            f"""
+            <div style="padding: 14px 16px; border-radius: 10px; background: #f6fbff; border: 1px solid #d9e6f2; margin-bottom: 12px;">
+                {module["passage"]}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    default_answers = answers_by_module.get(module["key"], {})
+    with st.form(f"initial_diagnosis_form_{module['key']}"):
+        current_answers = {}
+        for question in module["questions"]:
+            default_value = default_answers.get(question["id"])
+            if module["key"] == "vocab":
+                question_meta = f"[{question.get('level', '')}] {question.get('question_type', '')}"
+                if question.get("word"):
+                    st.markdown(f"**{question_meta} | {question.get('word')}**")
+                else:
+                    st.markdown(f"**{question_meta}**")
+                if question.get("sentence"):
+                    st.caption(question.get("sentence"))
+            current_answers[question["id"]] = st.radio(
+                question["prompt"],
+                question["options"],
+                index=question["options"].index(default_value) if default_value in question["options"] else None,
+                key=f"diagnosis_{module['key']}_{question['id']}",
+            )
+
+        button_cols = st.columns(3)
+        with button_cols[0]:
+            go_previous = st.form_submit_button("上一部分", disabled=step == 0, use_container_width=True)
+        with button_cols[1]:
+            button_label = "完成诊断" if step == len(definition) - 1 else "进入下一部分"
+            submitted = st.form_submit_button(button_label, type="primary", use_container_width=True)
+        with button_cols[2]:
+            pause = st.form_submit_button("暂停本轮诊断", use_container_width=True)
+
+    if go_previous:
+        answers_by_module[module["key"]] = {
+            question_id: answer
+            for question_id, answer in current_answers.items()
+            if answer
+        }
+        st.session_state["student_diagnosis_answers"] = answers_by_module
+        st.session_state["student_diagnosis_step"] = max(step - 1, 0)
+        st.rerun()
+
+    if pause:
+        _clear_diagnosis_session_state()
+        st.rerun()
+
+    if submitted:
+        unanswered = [question["prompt"] for question in module["questions"] if not current_answers.get(question["id"])]
+        if unanswered:
+            st.warning(f"这一部分还有 {len(unanswered)} 道题未作答，请完成后再继续。")
+            return
+
+        answers_by_module[module["key"]] = current_answers
+        st.session_state["student_diagnosis_answers"] = answers_by_module
+
+        if step < len(definition) - 1:
+            st.session_state["student_diagnosis_step"] = step + 1
+            st.rerun()
+
+        result = evaluate_initial_diagnosis(answers_by_module, definition=definition)
+        try:
+            dbs.save_initial_diagnosis_result(student_id, result)
+        except Exception as exc:
+            st.error("诊断结果保存失败，请联系管理员检查 Supabase 配置。")
+            st.exception(exc)
+            return
+
+        _clear_diagnosis_session_state()
+        st.session_state["student_diagnosis_flash"] = result
+        st.rerun()
 
 
 def _show_debug_info():
