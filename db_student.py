@@ -886,6 +886,7 @@ def get_diagnostic_vocab_bank_status(*, active_versions=None):
     versions = tuple(active_versions or ACTIVE_DIAGNOSTIC_VERSIONS)
     rows = _fetch_diagnostic_vocab_rows(active_versions=versions, active_only=None)
     summary = summarize_diagnostic_vocab_rows(rows)
+    summary["total_count"] = summary.get("total_rows", len(rows))
     summary["active_count"] = sum(1 for row in rows if bool(row.get("is_active")))
     summary["ready_for_diagnosis"] = summary["total_count"] > 0
     return summary
