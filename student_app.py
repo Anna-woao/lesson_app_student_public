@@ -1488,6 +1488,7 @@ def _render_profile_page(home_data: dict):
         return
 
     dimensions = diagnosis.get("dimensions", {}) or {}
+    vocab_result = diagnosis.get("vocab_diagnostic_result", {}) or {}
     st.markdown(
         f"""
         <div class="student-home-card">
@@ -1503,6 +1504,20 @@ def _render_profile_page(home_data: dict):
     if not dimensions:
         st.info("当前画像数据还在整理中，稍后会在这里补齐。")
         return
+
+    if diagnosis.get("vocab_profile_summary"):
+        st.markdown("### 词汇画像")
+        st.info(diagnosis.get("vocab_profile_summary"))
+        if vocab_result:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("推荐起点", vocab_result.get("recommended_training_start", ""))
+            with col2:
+                st.metric("不确定占比", f"{round((vocab_result.get('uncertain_rate', 0.0) or 0.0) * 100)}%")
+            with col3:
+                st.metric("主要问题", vocab_result.get("main_vocab_problem", ""))
+            st.write("优势信号", vocab_result.get("strengths", []))
+            st.write("风险信号", vocab_result.get("risk_flags", []))
 
     st.markdown("### 六维画像")
     dimension_items = list(dimensions.items())
