@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Tuple
 
 from supabase_client import get_admin_supabase_client, get_supabase_client
 from student_records_data import (
+    get_diagnostic_vocab_answers,
+    get_latest_diagnostic_vocab_result,
     get_latest_diagnosis_record,
     get_latest_profile_snapshot,
     get_lesson_detail_for_student,
