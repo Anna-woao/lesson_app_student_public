@@ -391,6 +391,24 @@ def _fetch_vocab_map(vocab_ids: List[int]) -> Dict[int, Tuple[str, str]]:
     return {r["id"]: (r.get("lemma", ""), r.get("default_meaning", "") or "") for r in rows}
 
 
+_POS_PREFIX_PATTERN = re.compile(
+    r"^\s*(?:"
+    r"num\.|pron\.|prep\.|conj\.|abbr\.|aux\.|art\.|det\.|"
+    r"n\.|v\.|vi\.|vt\.|adj\.|adv\.|phr\.|int\.|"
+    r"vt\.\s*&\s*vi\.|vi\.\s*&\s*vt\.|adj\.\s*&\s*adv\."
+    r")\s*",
+    re.IGNORECASE,
+)
+
+
+def _student_display_meaning(raw_meaning: str) -> str:
+    text = str(raw_meaning or "").strip()
+    if not text:
+        return ""
+    text = _POS_PREFIX_PATTERN.sub("", text, count=1).strip()
+    return text or str(raw_meaning or "").strip()
+
+
 def _fetch_vocab_detail_map(vocab_ids: List[int]) -> Dict[int, dict]:
     supabase = get_supabase_client()
     if not vocab_ids:
@@ -720,13 +738,20 @@ def build_book_test(
 
 
 def _build_questions_from_vocab_map(vocab_map, rows, test_mode: str):
-    all_meanings = [meaning for _, meaning in vocab_map.values() if meaning]
+    all_meanings = []
+    for _, raw_meaning in vocab_map.values():
+        display_meaning = _student_display_meaning(raw_meaning)
+        if display_meaning and display_meaning not in all_meanings:
+            all_meanings.append(display_meaning)
     questions = []
 
     for row in rows:
         vocab_item_id = row.get("vocab_item_id")
-        word, meaning = vocab_map.get(vocab_item_id, ("", ""))
+        word, raw_meaning = vocab_map.get(vocab_item_id, ("", ""))
         if not word:
+            continue
+        meaning = _student_display_meaning(raw_meaning)
+        if not meaning:
             continue
 
         one_mode = random.choice(["英译中", "中译英"]) if test_mode == "混合模式" else test_mode
@@ -735,6 +760,7 @@ def _build_questions_from_vocab_map(vocab_map, rows, test_mode: str):
             "vocab_item_id": vocab_item_id,
             "word": word,
             "meaning": meaning,
+            "raw_meaning": raw_meaning,
             "mode": one_mode,
             "source_book_id": row.get("book_id") or row.get("first_source_book_id"),
             "source_unit_id": row.get("unit_id") or row.get("first_source_unit_id"),
@@ -744,6 +770,8 @@ def _build_questions_from_vocab_map(vocab_map, rows, test_mode: str):
             distractors = [m for m in all_meanings if m and m != meaning]
             random.shuffle(distractors)
             options = [meaning] + distractors[:3]
+            options = list(dict.fromkeys(options))
+            options.append("我不确定")
             random.shuffle(options)
             q["options"] = options
 
@@ -760,11 +788,12 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
     for q in payload["questions"]:
         vocab_item_id = q["vocab_item_id"]
         mode = q["mode"]
-        user_answer = user_answers.get(vocab_item_id, "")
+        user_answer = str(user_answers.get(vocab_item_id, "") or "").strip()
+        is_uncertain = user_answer == "我不确定"
         if mode == "???":
-            is_correct = (user_answer or "").strip() == (q["meaning"] or "").strip()
+            is_correct = (not is_uncertain) and user_answer == (q["meaning"] or "").strip()
         else:
-            is_correct = (user_answer or "").strip().lower() == (q["word"] or "").strip().lower()
+            is_correct = user_answer.lower() == (q["word"] or "").strip().lower()
 
         if is_correct:
             score += 1
@@ -775,6 +804,7 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
             "meaning": q["meaning"],
             "mode": mode,
             "user_answer": user_answer,
+            "is_uncertain": is_uncertain,
             "is_correct": is_correct,
             "source_book_id": q.get("source_book_id"),
             "source_unit_id": q.get("source_unit_id"),
@@ -842,6 +872,7 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
         "score": score,
         "total": total,
         "accuracy": accuracy,
+        "uncertain_count": sum(1 for item in results if item.get("is_uncertain")),
         "results": results,
         "test_record_id": test_record_id,
         "persistence_ok": persistence_error is None,
