@@ -19,6 +19,8 @@ LEVEL_DISPLAY = {
     "L5": "L5 熟词生义 / 易混词",
 }
 
+UNCERTAIN_OPTION = "\u4e0d\u786e\u5b9a"
+
 
 STATIC_NON_VOCAB_MODULES: List[Dict[str, Any]] = [
     {
@@ -326,7 +328,7 @@ def _build_vocab_diagnostic_result(questions: List[Dict[str, Any]], answers: Dic
         level_totals[level] += 1
         question_type_totals[question_type] += 1
 
-        if selected_answer == "不确定":
+        if selected_answer == UNCERTAIN_OPTION:
             uncertain_count += 1
         if selected_answer == correct_answer:
             correct_count += 1
