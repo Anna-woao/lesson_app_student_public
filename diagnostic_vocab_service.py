@@ -65,7 +65,15 @@ QUESTION_TYPES_WITH_OPTION_PREVIEW = {
     "polysemy_context",
     "confusable_choice",
 }
-UNCERTAIN_OPTION = "\u4e0d\u786e\u5b9a"
+QUESTION_TYPE_ORDER = {
+    "en_to_zh_choice": 0,
+    "en_to_zh": 1,
+    "zh_to_en": 2,
+    "polysemy_context": 3,
+    "confusable_choice": 4,
+}
+LEVEL_ORDER = {level: index for index, level in enumerate(SUPPORTED_LEVELS)}
+UNCERTAIN_OPTION = "\u6211\u4e0d\u77e5\u9053"
 
 
 def _safe_text(value: Any) -> str:
@@ -516,7 +524,13 @@ def select_diagnostic_items_for_test(
             )
         selected_rows.extend(picked)
 
-    randomizer.shuffle(selected_rows)
+    selected_rows.sort(
+        key=lambda row: (
+            LEVEL_ORDER.get(_normalize_level(row.get("level")), 999),
+            QUESTION_TYPE_ORDER.get(_safe_text(row.get("question_type")), 999),
+            _safe_text(row.get("item_id")),
+        )
+    )
     return selected_rows
 
 
