@@ -386,6 +386,24 @@ def _render_vocab_feedback_grid(results, empty_message: str, card_tone: str):
     )
 
 
+def _build_vocab_test_prompt(question: dict) -> str:
+    if question.get("mode") == "英译中":
+        word = escape(_clean_feedback_text(question.get("word"), fallback="未命名单词"))
+        return f'请选择 <strong>{word}</strong> 的中文意思'
+    meaning = escape(_clean_feedback_text(question.get("meaning"), fallback="暂无提示"))
+    return f'请根据中文意思写出英文：<strong>{meaning}</strong>'
+
+
+def _count_answered_vocab_questions(questions) -> int:
+    answered = 0
+    for question in questions:
+        key_prefix = "student_mcq_" if question.get("mode") == "英译中" else "student_text_"
+        state_value = st.session_state.get(f"{key_prefix}{question['vocab_item_id']}")
+        if str(state_value or "").strip():
+            answered += 1
+    return answered
+
+
 def _render_vocab_test_intro(payload_exists: bool, result_exists: bool):
     if payload_exists:
         st.info("当前有一轮正在进行中的词汇检测。先完成这一轮，再开始新的检测。")
@@ -805,6 +823,145 @@ def _render_dashboard_styles():
             line-height: 1.6;
             word-break: break-word;
         }
+        .vocab-test-shell {
+            border: 1px solid #d9e6f2;
+            border-radius: 22px;
+            padding: 18px 20px;
+            margin-top: 14px;
+            background:
+                radial-gradient(circle at top right, rgba(231, 244, 255, 0.9), rgba(255,255,255,0) 28%),
+                linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+            box-shadow: 0 10px 28px rgba(33, 76, 110, 0.07);
+        }
+        .vocab-test-shell-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 14px;
+        }
+        .vocab-test-shell-title {
+            color: #102a43;
+            font-size: 24px;
+            font-weight: 700;
+            margin: 0 0 6px 0;
+        }
+        .vocab-test-shell-desc {
+            color: #486581;
+            font-size: 14px;
+            line-height: 1.7;
+            margin: 0;
+        }
+        .vocab-test-shell-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 7px 12px;
+            border-radius: 999px;
+            background: #e8f4ff;
+            color: #1f5f8b;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        .vocab-test-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .vocab-test-overview-item {
+            border: 1px solid #d9e6f2;
+            border-radius: 16px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.92);
+        }
+        .vocab-test-overview-item .label {
+            display: block;
+            color: #5a7184;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+        .vocab-test-overview-item .value {
+            color: #102a43;
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1.5;
+        }
+        .vocab-test-overview-item .value.pending {
+            color: #c26a14;
+        }
+        .vocab-test-questions {
+            display: grid;
+            gap: 14px;
+            margin-top: 16px;
+        }
+        .vocab-test-question-card {
+            border: 1px solid #dbe8f5;
+            border-radius: 18px;
+            padding: 16px 18px;
+            background: #ffffff;
+            box-shadow: 0 8px 20px rgba(33, 76, 110, 0.05);
+        }
+        .vocab-test-question-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+        .vocab-test-question-index {
+            color: #0f5f87;
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .vocab-test-question-prompt {
+            color: #102a43;
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1.55;
+        }
+        .vocab-test-question-mode {
+            display: inline-flex;
+            align-items: center;
+            padding: 5px 10px;
+            border-radius: 999px;
+            background: #f2f8fd;
+            border: 1px solid #d8e8f5;
+            color: #44627d;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .vocab-test-question-tip {
+            color: #5a7184;
+            font-size: 13px;
+            margin-bottom: 2px;
+        }
+        .vocab-test-submit-box {
+            margin-top: 16px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: linear-gradient(180deg, #f7fbff 0%, #eef6ff 100%);
+            border: 1px solid #d7e7f6;
+        }
+        .vocab-test-submit-title {
+            color: #102a43;
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .vocab-test-submit-desc {
+            color: #486581;
+            font-size: 13px;
+            line-height: 1.6;
+            margin-bottom: 0;
+        }
+        div[data-testid="stForm"] .stRadio > label,
+        div[data-testid="stForm"] .stTextInput > label {
+            color: #334e68;
+            font-weight: 600;
+        }
         div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {
             min-height: 42px;
         }
@@ -827,6 +984,10 @@ def _render_dashboard_styles():
             }
             .vocab-feedback-card {
                 min-height: auto;
+            }
+            .vocab-test-shell-header,
+            .vocab-test-question-head {
+                flex-direction: column;
             }
         }
         </style>
@@ -1946,28 +2107,95 @@ def _render_vocab_test(student_id: int):
         return
 
     st.markdown("---")
-    st.subheader("正在答题")
-    st.caption("请先完成这一轮检测。提交后，本页只保留结果和重新开始入口。")
+    questions = payload.get("questions", [])
+    source_label = st.session_state.get("student_test_source_label", "学生检测")
+    answered_count = _count_answered_vocab_questions(questions)
+    pending_count = max(len(questions) - answered_count, 0)
+    mode_summary = " / ".join(sorted({str(q.get("mode") or "") for q in questions if q.get("mode")})) or "未标注"
+
+    st.markdown(
+        f"""
+        <div class="vocab-test-shell">
+            <div class="vocab-test-shell-header">
+                <div>
+                    <div class="vocab-test-shell-title">正在答题</div>
+                    <p class="vocab-test-shell-desc">
+                        这一页只做一件事：把这一轮检测顺着做完。提交后，页面会自动切换到结果反馈，不会保留冗长的答题过程。
+                    </p>
+                </div>
+                <span class="vocab-test-shell-badge">当前范围：{escape(source_label)}</span>
+            </div>
+            <div class="vocab-test-overview">
+                <div class="vocab-test-overview-item">
+                    <span class="label">本轮题数</span>
+                    <span class="value">{len(questions)}</span>
+                </div>
+                <div class="vocab-test-overview-item">
+                    <span class="label">作答方式</span>
+                    <span class="value">{escape(mode_summary)}</span>
+                </div>
+                <div class="vocab-test-overview-item">
+                    <span class="label">已填写</span>
+                    <span class="value">{answered_count}</span>
+                </div>
+                <div class="vocab-test-overview-item">
+                    <span class="label">待完成</span>
+                    <span class="value pending">{pending_count}</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     with st.form("student_vocab_test_form", clear_on_submit=False):
         user_answers = {}
+        st.markdown('<div class="vocab-test-questions">', unsafe_allow_html=True)
 
-        for idx, q in enumerate(payload["questions"], start=1):
-            st.markdown(f"### 第 {idx} 题")
-            st.caption(f"本题题型：{q['mode']}")
+        for idx, q in enumerate(questions, start=1):
+            st.markdown(
+                f"""
+                <div class="vocab-test-question-card">
+                    <div class="vocab-test-question-head">
+                        <div>
+                            <div class="vocab-test-question-index">Question {idx}</div>
+                            <div class="vocab-test-question-prompt">{_build_vocab_test_prompt(q)}</div>
+                        </div>
+                        <span class="vocab-test-question-mode">{escape(str(q.get("mode") or "未标注"))}</span>
+                    </div>
+                    <div class="vocab-test-question-tip">先看题干，再直接作答，不需要来回翻页面找说明。</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
             if q["mode"] == "英译中":
                 user_answers[q["vocab_item_id"]] = st.radio(
-                    f"请选择 **{q['word']}** 的中文意思：",
+                    "选择正确答案",
                     q["options"],
                     key=f"student_mcq_{q['vocab_item_id']}",
+                    label_visibility="collapsed",
                 )
             else:
                 user_answers[q["vocab_item_id"]] = st.text_input(
-                    f"请根据中文意思写出英文：**{q['meaning']}**",
+                    "输入你的答案",
                     key=f"student_text_{q['vocab_item_id']}",
+                    placeholder="在这里输入英文单词",
+                    label_visibility="collapsed",
                 )
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div class="vocab-test-submit-box">
+                <div class="vocab-test-submit-title">完成后统一提交</div>
+                <p class="vocab-test-submit-desc">
+                    提交后会立即显示正确词和错词反馈；如果还有没写的题，也会按未作答一并进入结果页。
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-        submitted = st.form_submit_button("提交检测")
+        submitted = st.form_submit_button("提交检测", type="primary", use_container_width=True)
 
     if submitted:
         result = dbs.submit_student_test(
