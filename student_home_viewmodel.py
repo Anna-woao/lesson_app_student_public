@@ -562,6 +562,9 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
         "next_actions": profile_payload.get("next_actions") or [],
         "vocab_profile_summary": profile_payload.get("vocab_profile_summary") or "",
         "vocab_diagnostic_result": profile_payload.get("vocab_diagnostic_result") or {},
+        "vocab_training_track": profile_payload.get("vocab_training_track") or "",
+        "vocab_training_track_label": profile_payload.get("vocab_training_track_label") or "",
+        "vocab_training_track_reason": profile_payload.get("vocab_training_track_reason") or "",
         "module_reports": profile_payload.get("module_reports") or {},
         "dimensions": profile_payload.get("dimensions") or {},
     }
