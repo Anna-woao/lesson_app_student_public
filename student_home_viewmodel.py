@@ -152,6 +152,129 @@ def _build_book_label(book_row: Any) -> str:
     return f"{book_name} {volume_name}".strip()
 
 
+def _build_profile_review_card(priority_module: str, strongest_module: str) -> StudentTaskCard:
+    focus_map = {
+        "vocab": "先看清词汇起点，把今天的词汇任务做得更稳。",
+        "reading": "先看清阅读起点，带着主旨和信息定位目标进入今天的训练。",
+        "grammar": "先看清语法起点，带着句型和时态重点进入今天的训练。",
+        "writing": "先看清写作起点，带着完整句和连接表达重点进入今天的训练。",
+    }
+    strongest_hint_map = {
+        "vocab": "你当前相对更稳的是词汇基础。",
+        "reading": "你当前相对更稳的是阅读理解。",
+        "grammar": "你当前相对更稳的是语法掌握。",
+        "writing": "你当前相对更稳的是写作表达。",
+    }
+    description = focus_map.get(priority_module, "先看清当前画像，再开始今天的成长任务。")
+    strongest_hint = strongest_hint_map.get(strongest_module, "")
+    if strongest_hint:
+        description = f"{description} {strongest_hint}"
+
+    return StudentTaskCard(
+        title="先看成长画像，确认今天重点",
+        eta="3 分钟",
+        description=description,
+        target_section="profile_page",
+        action_type="focus_section",
+    )
+
+
+def _build_diagnosis_primary_card(
+    priority_module: str,
+    first_unfinished_book: Any,
+    has_review_items: bool,
+    has_recent_lessons: bool,
+    recent_lessons: List[Any],
+) -> StudentTaskCard:
+    if priority_module == "vocab":
+        if has_review_items:
+            return StudentTaskCard(
+                title="先完成一轮词汇复习检测",
+                eta="15 分钟",
+                description="首次诊断显示你现在更需要先把核心词汇稳住，今天先从复习检测开始更合适。",
+                target_section="vocab_test",
+                action_type="start_progress_test",
+                action_params={
+                    "test_type": "复习检测",
+                    "test_mode": "混合模式",
+                    "test_count": 25,
+                },
+                is_primary=True,
+            )
+        if first_unfinished_book:
+            return StudentTaskCard(
+                title="先完成一轮词汇起步检测",
+                eta="12 分钟",
+                description=f"首次诊断建议先从词汇打底，今天先用 {_build_book_label(first_unfinished_book)} 进入训练节奏。",
+                target_section="vocab_test",
+                action_type="start_book_test",
+                action_params={
+                    "book_id": first_unfinished_book[0],
+                    "book_label": _build_book_label(first_unfinished_book),
+                    "unit_ids": [],
+                    "test_mode": "混合模式",
+                    "test_count": 25,
+                },
+                is_primary=True,
+            )
+        return StudentTaskCard(
+            title="先做一轮词汇轻量检测",
+            eta="10 分钟",
+            description="首次诊断建议先稳住词汇基础，今天先用一轮轻量检测把状态带起来。",
+            target_section="vocab_test",
+            action_type="focus_section",
+            is_primary=True,
+        )
+
+    if has_recent_lessons:
+        latest_lesson = recent_lessons[0]
+        focus_map = {
+            "reading": "首次诊断显示阅读理解是当前优先点，先从最近学案开始，带着主旨和细节定位目标去练。",
+            "grammar": "首次诊断显示语法基础是当前优先点，先回到最近学案，在语境里看句型和时态更容易稳住。",
+            "writing": "首次诊断显示写作表达是当前优先点，先回到最近学案，关注完整句和表达组织。",
+        }
+        title_map = {
+            "reading": "先完成一份阅读导向训练",
+            "grammar": "先完成一份语法导向训练",
+            "writing": "先完成一份表达导向训练",
+        }
+        return StudentTaskCard(
+            title=title_map.get(priority_module, "先完成今天的训练任务"),
+            eta="15 分钟",
+            description=focus_map.get(priority_module, "先从最近学案进入今天的训练。"),
+            target_section="recent_lessons",
+            action_type="open_lesson_detail",
+            action_params={"lesson_id": latest_lesson[0]},
+            is_primary=True,
+        )
+
+    if first_unfinished_book:
+        return StudentTaskCard(
+            title="先从现有训练入口开始今天任务",
+            eta="12 分钟",
+            description="虽然当前优先点不在词汇，但现阶段可直接承接的入口仍以现有训练模块为主，先进入一轮可执行任务。",
+            target_section="vocab_test",
+            action_type="start_book_test",
+            action_params={
+                "book_id": first_unfinished_book[0],
+                "book_label": _build_book_label(first_unfinished_book),
+                "unit_ids": [],
+                "test_mode": "混合模式",
+                "test_count": 25,
+            },
+            is_primary=True,
+        )
+
+    return StudentTaskCard(
+        title="先查看画像，再开始今天任务",
+        eta="5 分钟",
+        description="先看清当前成长重点，再进入今天的训练，会比直接开始更有方向感。",
+        target_section="profile_page",
+        action_type="focus_section",
+        is_primary=True,
+    )
+
+
 def _build_history_task_cards(
     recent_lessons: List[Any],
     learned_vocab_count: int,
@@ -222,6 +345,9 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
     has_review_items = any(row[7] > 0 for row in book_progress)
     has_unfinished_book = any(row[4] > 0 and row[3] < row[4] for row in book_progress)
     has_diagnosis = latest_diagnosis is not None
+    profile_payload = (latest_snapshot or {}).get("profile_payload") or {}
+    priority_module = profile_payload.get("priority_module") or ""
+    strongest_module = profile_payload.get("strongest_module") or ""
     first_unfinished_book = next(
         (row for row in book_progress if row[4] > 0 and row[3] < row[4]),
         None,
@@ -355,6 +481,52 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
                 target_section="test_history",
             ),
         )
+
+    if has_diagnosis and priority_module:
+        primary_card = _build_diagnosis_primary_card(
+            priority_module=priority_module,
+            first_unfinished_book=first_unfinished_book,
+            has_review_items=has_review_items,
+            has_recent_lessons=has_recent_lessons,
+            recent_lessons=recent_lessons,
+        )
+        current_task_cards = [primary_card]
+        _append_task_card(
+            current_task_cards,
+            _build_profile_review_card(
+                priority_module=priority_module,
+                strongest_module=strongest_module or priority_module,
+            ),
+        )
+        if has_recent_lessons and primary_card.target_section != "recent_lessons":
+            latest_lesson = recent_lessons[0]
+            _append_task_card(
+                current_task_cards,
+                StudentTaskCard(
+                    title="回看最近学案",
+                    eta="15 分钟",
+                    description=f"最近学案：{latest_lesson[3] or latest_lesson[1] or '继续练习'}。",
+                    target_section="recent_lessons",
+                    action_type="open_lesson_detail",
+                    action_params={"lesson_id": latest_lesson[0]},
+                ),
+            )
+        elif has_review_items and primary_card.action_type != "start_progress_test":
+            _append_task_card(
+                current_task_cards,
+                StudentTaskCard(
+                    title="开始一轮复习检测",
+                    eta="15 分钟",
+                    description="把待复习内容直接转成可开始的检测，不用再自己找入口。",
+                    target_section="vocab_test",
+                    action_type="start_progress_test",
+                    action_params={
+                        "test_type": "复习检测",
+                        "test_mode": "混合模式",
+                        "test_count": 25,
+                    },
+                ),
+            )
 
     activity_dates = [
         parsed_date
