@@ -294,12 +294,14 @@ def _render_test_feedback_blocks(results):
     total_count = len(results)
     correct_results = [item for item in results if item.get("is_correct")]
     wrong_results = [item for item in results if not item.get("is_correct")]
+    uncertain_results = [item for item in results if item.get("is_uncertain")]
     st.markdown(
         (
             '<div class="vocab-feedback-overview">'
             f'<div class="vocab-feedback-overview-item"><span class="label">本次题数</span><span class="value">{total_count}</span></div>'
             f'<div class="vocab-feedback-overview-item"><span class="label">答对</span><span class="value correct">{len(correct_results)}</span></div>'
             f'<div class="vocab-feedback-overview-item"><span class="label">答错</span><span class="value wrong">{len(wrong_results)}</span></div>'
+            f'<div class="vocab-feedback-overview-item"><span class="label">不确定</span><span class="value pending">{len(uncertain_results)}</span></div>'
             '</div>'
         ),
         unsafe_allow_html=True,
@@ -357,7 +359,7 @@ def _render_vocab_feedback_grid(results, empty_message: str, card_tone: str):
         mode = escape(str(item.get("mode") or ""))
         user_answer = escape(_clean_feedback_text(item.get("user_answer")))
         correct_answer = escape(_get_correct_answer_text(item))
-        tone_label = "需要订正" if card_tone == "wrong" else "回答正确"
+        tone_label = "暂不确定" if item.get("is_uncertain") else ("需要订正" if card_tone == "wrong" else "回答正确")
         cards_html.append(
             (
                 f'<div class="vocab-feedback-card vocab-feedback-card--{card_tone}">'
@@ -1412,21 +1414,46 @@ def _render_diagnosis_result(result: dict):
         if vocab_profile_summary:
             st.markdown("### 词汇画像摘要")
             st.info(vocab_profile_summary)
+        vocab_metric_cols = st.columns(4)
+        with vocab_metric_cols[0]:
+            st.metric("推荐起点", vocab_diagnostic_result.get("recommended_training_start", ""))
+        with vocab_metric_cols[1]:
+            st.metric("高频词正确率", f"{round((vocab_diagnostic_result.get('high_frequency_accuracy', 0.0) or 0.0) * 100)}%")
+        with vocab_metric_cols[2]:
+            st.metric("阅读词汇正确率", f"{round((vocab_diagnostic_result.get('reading_vocab_accuracy', 0.0) or 0.0) * 100)}%")
+        with vocab_metric_cols[3]:
+            st.metric("不确定占比", f"{round((vocab_diagnostic_result.get('uncertain_rate', 0.0) or 0.0) * 100)}%")
         with st.expander("查看词汇诊断拆解", expanded=False):
-            st.write("推荐训练起点", vocab_diagnostic_result.get("recommended_training_start", ""))
-            st.write("主要词汇问题", vocab_diagnostic_result.get("main_vocab_problem", ""))
-            st.write("分层正确率", {
-                "L1": vocab_diagnostic_result.get("l1_accuracy", 0.0),
-                "L2": vocab_diagnostic_result.get("l2_accuracy", 0.0),
-                "L3": vocab_diagnostic_result.get("l3_accuracy", 0.0),
-                "L4": vocab_diagnostic_result.get("l4_accuracy", 0.0),
-                "L5": vocab_diagnostic_result.get("l5_accuracy", 0.0),
-            })
-            st.write("题型正确率", vocab_diagnostic_result.get("question_type_accuracy_map", {}))
-            st.write("不确定占比", vocab_diagnostic_result.get("uncertain_rate", 0.0))
-            st.write("优势信号", vocab_diagnostic_result.get("strengths", []))
-            st.write("风险信号", vocab_diagnostic_result.get("risk_flags", []))
-            st.write("建议动作", vocab_diagnostic_result.get("recommended_actions", []))
+            st.markdown(f"**当前主要词汇问题**：{vocab_diagnostic_result.get('main_vocab_problem', '')}")
+            level_cols = st.columns(5)
+            for column, level_key in zip(level_cols, ["l1_accuracy", "l2_accuracy", "l3_accuracy", "l4_accuracy", "l5_accuracy"]):
+                with column:
+                    level_label = level_key.split("_")[0].upper()
+                    value = vocab_diagnostic_result.get(level_key, 0.0) or 0.0
+                    st.metric(level_label, f"{round(value * 100)}%")
+
+            question_type_map = vocab_diagnostic_result.get("question_type_accuracy_map", {}) or {}
+            if question_type_map:
+                st.markdown("**题型表现**")
+                for raw_key, value in question_type_map.items():
+                    st.write(f"- `{raw_key}`：{round((value or 0.0) * 100)}%")
+
+            strengths = [item for item in vocab_diagnostic_result.get("strengths", []) if item]
+            risk_flags = [item for item in vocab_diagnostic_result.get("risk_flags", []) if item]
+            recommended_actions = [item for item in vocab_diagnostic_result.get("recommended_actions", []) if item]
+
+            if strengths:
+                st.markdown("**你已经有的优势**")
+                for item in strengths:
+                    st.write(f"- {item}")
+            if risk_flags:
+                st.markdown("**当前要注意的地方**")
+                for item in risk_flags:
+                    st.write(f"- {item}")
+            if recommended_actions:
+                st.markdown("**接下来怎么练更合适**")
+                for item in recommended_actions:
+                    st.write(f"- {item}")
 
     next_actions = [item for item in result.get("next_actions", []) if item]
     if next_actions:
@@ -1516,8 +1543,21 @@ def _render_profile_page(home_data: dict):
                 st.metric("不确定占比", f"{round((vocab_result.get('uncertain_rate', 0.0) or 0.0) * 100)}%")
             with col3:
                 st.metric("主要问题", vocab_result.get("main_vocab_problem", ""))
-            st.write("优势信号", vocab_result.get("strengths", []))
-            st.write("风险信号", vocab_result.get("risk_flags", []))
+            strengths = [item for item in vocab_result.get("strengths", []) if item]
+            risk_flags = [item for item in vocab_result.get("risk_flags", []) if item]
+            recommended_actions = [item for item in vocab_result.get("recommended_actions", []) if item]
+            if strengths:
+                st.markdown("**目前的优势**")
+                for item in strengths:
+                    st.write(f"- {item}")
+            if risk_flags:
+                st.markdown("**当前风险点**")
+                for item in risk_flags:
+                    st.write(f"- {item}")
+            if recommended_actions:
+                st.markdown("**建议优先动作**")
+                for item in recommended_actions[:3]:
+                    st.write(f"- {item}")
 
     st.markdown("### 六维画像")
     dimension_items = list(dimensions.items())
@@ -2278,14 +2318,13 @@ def _render_vocab_test(student_id: int):
             st.markdown(
                 f"""
                 <div class="vocab-test-question-card">
-                    <div class="vocab-test-question-head">
-                        <div>
-                            <div class="vocab-test-question-index">Question {idx}</div>
-                            <div class="vocab-test-question-prompt">{_build_vocab_test_prompt(q)}</div>
-                        </div>
-                        <span class="vocab-test-question-mode">{escape(str(q.get("mode") or "未标注"))}</span>
+                <div class="vocab-test-question-head">
+                    <div>
+                        <div class="vocab-test-question-index">Question {idx}</div>
+                        <div class="vocab-test-question-prompt">{_build_vocab_test_prompt(q)}</div>
                     </div>
-                    <div class="vocab-test-question-tip">先看题干，再直接作答，不需要来回翻页面找说明。</div>
+                    <span class="vocab-test-question-mode">{escape(str(q.get("mode") or "未标注"))}</span>
+                </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -2294,6 +2333,7 @@ def _render_vocab_test(student_id: int):
                 user_answers[q["vocab_item_id"]] = st.radio(
                     "选择正确答案",
                     q["options"],
+                    index=None,
                     key=f"student_mcq_{q['vocab_item_id']}",
                     label_visibility="collapsed",
                 )
