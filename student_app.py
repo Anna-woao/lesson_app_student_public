@@ -2554,11 +2554,6 @@ def _render_initial_diagnosis(student_id: int):
         for question in module["questions"]:
             default_value = default_answers.get(question["id"])
             if module["key"] == "vocab":
-                question_meta = f"[{question.get('level', '')}] {question.get('question_type', '')}"
-                if question.get("word"):
-                    st.markdown(f"**{question_meta} | {question.get('word')}**")
-                else:
-                    st.markdown(f"**{question_meta}**")
                 if question.get("sentence"):
                     st.caption(question.get("sentence"))
             current_answers[question["id"]] = st.radio(
