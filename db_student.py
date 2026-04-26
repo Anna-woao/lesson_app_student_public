@@ -847,3 +847,60 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
         "sync_ok": sync_error is None,
         "sync_error": sync_error,
     }
+
+
+
+def _fetch_diagnostic_vocab_rows(active_versions=None):
+    from diagnostic_vocab_service import ACTIVE_DIAGNOSTIC_VERSIONS
+
+    versions = tuple(active_versions or ACTIVE_DIAGNOSTIC_VERSIONS)
+    supabase = _get_admin_supabase_client_required()
+    response = (
+        supabase.table("diagnostic_vocab_items")
+        .select(
+            "item_id, module, level, word, primary_meaning_zh, part_of_speech, "
+            "category, sub_skill, question_type, question_text, correct_answer, "
+            "wrong_option_1, wrong_option_2, wrong_option_3, explanation, "
+            "diagnostic_tag, diagnostic_value, difficulty_level, grade_level, "
+            "frequency_band, source_type, source_note, source_url_primary, "
+            "source_url_method, is_anchor, is_active, version, sentence, "
+            "notes_for_codex, created_at, updated_at"
+        )
+        .in_("version", list(versions))
+        .eq("is_active", True)
+        .execute()
+    )
+    return response.data or []
+
+
+# Temporary student-side preview hook for the new diagnostic vocab bank.
+def get_diagnostic_vocab_items_for_test(*, active_versions=None, random_seed: int | None = None):
+    from diagnostic_vocab_service import (
+        ACTIVE_DIAGNOSTIC_VERSIONS,
+        build_diagnostic_question_payload,
+        select_diagnostic_items_for_test,
+    )
+
+    versions = tuple(active_versions or ACTIVE_DIAGNOSTIC_VERSIONS)
+    rows = _fetch_diagnostic_vocab_rows(active_versions=versions)
+    selected_rows = select_diagnostic_items_for_test(
+        rows,
+        active_versions=versions,
+        random_seed=random_seed,
+    )
+    return [build_diagnostic_question_payload(row) for row in selected_rows]
+
+
+# Temporary student-side preview hook for validating question distribution and option shuffle.
+def get_diagnostic_vocab_preview_bundle(*, active_versions=None, random_seed: int | None = None):
+    from diagnostic_vocab_service import ACTIVE_DIAGNOSTIC_VERSIONS, build_diagnostic_preview_summary
+
+    versions = tuple(active_versions or ACTIVE_DIAGNOSTIC_VERSIONS)
+    questions = get_diagnostic_vocab_items_for_test(
+        active_versions=versions,
+        random_seed=random_seed,
+    )
+    return {
+        "summary": build_diagnostic_preview_summary(questions),
+        "questions": questions,
+    }
