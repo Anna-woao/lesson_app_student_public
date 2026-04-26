@@ -407,6 +407,7 @@ def save_initial_diagnosis_result(student_id: int, diagnosis_result: dict):
             "reading_profile": diagnosis_result.get("reading_profile"),
             "grammar_gap": diagnosis_result.get("grammar_gap"),
             "writing_profile": diagnosis_result.get("writing_profile"),
+            "vocab_diagnostic_result": diagnosis_result.get("vocab_diagnostic_result", {}),
             "module_reports": diagnosis_result.get("module_reports", {}),
             "priority_module": diagnosis_result.get("priority_module"),
             "strongest_module": diagnosis_result.get("strongest_module"),
