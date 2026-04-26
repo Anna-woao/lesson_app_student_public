@@ -1458,6 +1458,40 @@ def _render_profile_page(home_data: dict):
     for item in [text for text in next_steps if text]:
         st.write(f"- {item}")
 
+
+
+def _render_diagnostic_vocab_preview_box():
+    st.markdown("### ??????????")
+    st.caption("????????????????????????????????")
+    if st.button("?? 80 ????????", key="student_preview_diagnostic_vocab_btn"):
+        try:
+            st.session_state["student_diagnostic_vocab_preview_bundle"] = dbs.get_diagnostic_vocab_preview_bundle()
+        except Exception as exc:
+            st.error(f"?????????????{exc}")
+
+    preview_bundle = st.session_state.get("student_diagnostic_vocab_preview_bundle")
+    if not preview_bundle:
+        return
+
+    summary = preview_bundle.get("summary", {})
+    questions = preview_bundle.get("questions", [])
+    st.success(f"??? {summary.get('total_count', len(questions))} ??")
+    st.write("L1-L5 ???", summary.get("level_counts", {}))
+    st.write("Question type ???", summary.get("question_type_counts", {}))
+
+    with st.expander("??? 5 ????", expanded=False):
+        for idx, question in enumerate(questions[:5], start=1):
+            st.markdown(f"**{idx}. [{question.get('level')}] {question.get('question_type')}**")
+            st.write(question.get("question_text"))
+            if question.get("question_type") == "polysemy_context" and question.get("sentence"):
+                st.caption(f"Sentence: {question.get('sentence')}")
+            st.write("???", question.get("options", []))
+            st.caption(
+                f"Tag={question.get('diagnostic_tag')} | "
+                f"Value={question.get('diagnostic_value')} | "
+                f"??????={question.get('has_uncertain_option')}"
+            )
+
 def _render_initial_diagnosis(student_id: int):
     _render_section_anchor("initial_diagnosis")
     st.header("首次诊断")
@@ -1504,6 +1538,8 @@ def _render_initial_diagnosis(student_id: int):
             st.metric("总题数", sum(len(module.get("questions", [])) for module in definition))
         with intro_col3:
             st.metric("预计时长", f"{sum(module.get('estimated_minutes', 3) for module in definition)} 分钟")
+
+        _render_diagnostic_vocab_preview_box()
 
         st.info("建议一次完成，中途也可以暂停；重新进入后会从头开始这一轮诊断。")
         if st.button("开始首次诊断", key="start_initial_diagnosis", type="primary"):
