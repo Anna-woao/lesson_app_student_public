@@ -363,6 +363,94 @@ def ensure_vocab_test_record_items_table(cursor):
     """)
 
 
+def ensure_diagnostic_vocab_items_table(cursor):
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS diagnostic_vocab_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id TEXT NOT NULL UNIQUE,
+            module TEXT,
+            level TEXT,
+            word TEXT,
+            primary_meaning_zh TEXT,
+            part_of_speech TEXT,
+            category TEXT,
+            sub_skill TEXT,
+            question_type TEXT,
+            question_text TEXT,
+            correct_answer TEXT,
+            wrong_option_1 TEXT,
+            wrong_option_2 TEXT,
+            wrong_option_3 TEXT,
+            explanation TEXT,
+            diagnostic_tag TEXT,
+            diagnostic_value TEXT,
+            difficulty_level TEXT,
+            grade_level TEXT,
+            frequency_band TEXT,
+            source_type TEXT,
+            source_note TEXT,
+            source_url_primary TEXT,
+            source_url_method TEXT,
+            is_anchor INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            version TEXT,
+            sentence TEXT,
+            notes_for_codex TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+
+def ensure_diagnostic_vocab_results_table(cursor):
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS diagnostic_vocab_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            diagnostic_id INTEGER NOT NULL UNIQUE,
+            student_id INTEGER NOT NULL,
+            total_scored_items INTEGER DEFAULT 0,
+            correct_count INTEGER DEFAULT 0,
+            overall_accuracy REAL DEFAULT 0,
+            l1_accuracy REAL DEFAULT 0,
+            l2_accuracy REAL DEFAULT 0,
+            l3_accuracy REAL DEFAULT 0,
+            l4_accuracy REAL DEFAULT 0,
+            l5_accuracy REAL DEFAULT 0,
+            high_frequency_accuracy REAL DEFAULT 0,
+            reading_vocab_accuracy REAL DEFAULT 0,
+            polysemy_accuracy REAL DEFAULT 0,
+            confusable_accuracy REAL DEFAULT 0,
+            uncertain_rate REAL DEFAULT 0,
+            estimated_vocab_range TEXT,
+            vocab_level_label TEXT,
+            main_vocab_problem TEXT,
+            recommended_training_start TEXT,
+            self_check_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+
+def ensure_diagnostic_vocab_answers_table(cursor):
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS diagnostic_vocab_answers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            diagnostic_id INTEGER NOT NULL,
+            student_id INTEGER NOT NULL,
+            item_id TEXT NOT NULL,
+            selected_answer TEXT,
+            is_correct INTEGER DEFAULT 0,
+            is_uncertain INTEGER DEFAULT 0,
+            time_spent_seconds INTEGER,
+            question_type TEXT,
+            level TEXT,
+            diagnostic_tag TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+
 # ------------------------------
 # 系统自检主入口
 # ------------------------------
@@ -395,6 +483,8 @@ def run_system_check():
         ensure_vocab_test_records_table(cursor)
         ensure_vocab_test_record_items_table(cursor)
         ensure_diagnostic_vocab_items_table(cursor)
+        ensure_diagnostic_vocab_results_table(cursor)
+        ensure_diagnostic_vocab_answers_table(cursor)
 
         conn.commit()
         print("✅ 系统自检完成")
