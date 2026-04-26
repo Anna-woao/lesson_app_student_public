@@ -856,7 +856,9 @@ def _fetch_diagnostic_vocab_rows(active_versions=None, *, active_only: bool | No
     from diagnostic_vocab_service import ACTIVE_DIAGNOSTIC_VERSIONS
 
     versions = tuple(active_versions or ACTIVE_DIAGNOSTIC_VERSIONS)
-    supabase = _get_admin_supabase_client_required()
+    # Student-side first diagnosis should not depend on the service role key.
+    # The diagnostic bank is treated as read-only public app data for this flow.
+    supabase = get_supabase_client()
     query = (
         supabase.table("diagnostic_vocab_items")
         .select(
