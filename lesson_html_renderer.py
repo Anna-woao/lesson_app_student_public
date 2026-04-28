@@ -406,6 +406,40 @@ def parse_part7_structure(part7_text: str):
     }
 
 
+def _build_meta_header_html(lesson_meta: dict | None) -> str:
+    meta = lesson_meta or {}
+    ordered_fields = [
+        ("student_name", "学生"),
+        ("grade", "年级"),
+        ("lesson_type", "题型"),
+        ("difficulty", "难度"),
+        ("reading_subtype", "阅读子类型"),
+        ("topic", "话题"),
+        ("book_name", "词汇书"),
+        ("unit_name", "单元"),
+    ]
+
+    items = []
+    for key, label in ordered_fields:
+        value = meta.get(key)
+        if value is not None and str(value).strip():
+            items.append((label, str(value).strip()))
+
+    if not items:
+        return ""
+
+    html_parts = [
+        '<section class="lesson-meta-shell">',
+        '<div class="lesson-meta-title">学案信息</div>',
+        '<div class="lesson-meta-grid">',
+    ]
+    for label, value in items:
+        html_parts.append(f'<div class="lesson-meta-label">{escape(label)}</div>')
+        html_parts.append(f'<div class="lesson-meta-value">{escape(value)}</div>')
+    html_parts.append('</div></section>')
+    return ''.join(html_parts)
+
+
 def get_part_table_style():
     """
     返回 Part 1 / Part 2 和长文本预览共用的 CSS。
@@ -477,6 +511,55 @@ def get_part_table_style():
         margin: 8px 0 14px 0;
     }
 
+    .lesson-meta-shell {
+        border: 1px solid #d7e1ee;
+        border-radius: 10px;
+        background: #ffffff;
+        padding: 14px 16px;
+        margin: 0 0 18px 0;
+    }
+
+    .lesson-meta-title {
+        font-size: 18px;
+        font-weight: 800;
+        color: #19324d;
+        margin: 0 0 10px 0;
+    }
+
+    .lesson-meta-grid {
+        display: grid;
+        grid-template-columns: 110px minmax(0, 1fr) 110px minmax(0, 1fr);
+        border: 1px solid #d9e3ef;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .lesson-meta-label,
+    .lesson-meta-value {
+        padding: 10px 12px;
+        border-bottom: 1px solid #d9e3ef;
+        font-size: 15px;
+        line-height: 1.5;
+        min-width: 0;
+    }
+
+    .lesson-meta-label {
+        background: #5b7db1;
+        color: #ffffff;
+        font-weight: 700;
+        text-align: center;
+    }
+
+    .lesson-meta-value {
+        background: #f7f9fc;
+        color: #253241;
+        word-break: break-word;
+    }
+
+    .lesson-meta-grid > div:nth-last-child(-n+4) {
+        border-bottom: none;
+    }
+
     .lesson-section-title {
         font-size: 18px;
         font-weight: 700;
@@ -516,7 +599,7 @@ def get_part_table_style():
 
     .lesson-passage p {
         margin: 0 0 18px 0;
-        line-height: 2.25;
+        line-height: 2.45;
         font-size: 18px;
     }
 
@@ -793,6 +876,7 @@ def get_part_table_style():
 
         .lesson-section-title,
         .lesson-subtitle,
+        .lesson-meta-title,
         .teaching-band,
         .analysis-card-header,
         .translation-label,
@@ -816,9 +900,9 @@ def get_part_table_style():
         }
 
         .lesson-passage p {
-            line-height: 1.65;
+            line-height: 2.5;
             font-size: 10pt;
-            margin: 0 0 10px 0;
+            margin: 0 0 12px 0;
         }
 
         .lesson-qa-card,
@@ -834,6 +918,27 @@ def get_part_table_style():
 
         .analysis-card-header {
             padding: 8px 10px;
+        }
+
+        .lesson-meta-shell {
+            padding: 10px 12px;
+            margin-bottom: 12px;
+        }
+
+        .lesson-meta-title {
+            font-size: 12pt;
+            margin-bottom: 8px;
+        }
+
+        .lesson-meta-grid {
+            grid-template-columns: 64px minmax(0, 1fr) 64px minmax(0, 1fr);
+        }
+
+        .lesson-meta-label,
+        .lesson-meta-value {
+            padding: 6px 7px;
+            font-size: 9pt;
+            line-height: 1.35;
         }
 
         .analysis-card-body {
@@ -955,8 +1060,8 @@ def parse_lesson_text_to_parts(content: str) -> dict:
     return parts
 
 
-def build_downloadable_lesson_html(parts: dict, title: str = "英语学案") -> str:
-    body_html = build_full_lesson_preview_html(parts)
+def build_downloadable_lesson_html(parts: dict, title: str = "英语学案", lesson_meta: dict | None = None) -> str:
+    body_html = _build_meta_header_html(lesson_meta) + build_full_lesson_preview_html(parts)
     if not body_html and parts.get("raw"):
         body_html = f'<pre class="lesson-mono">{escape(str(parts["raw"]))}</pre>'
 
