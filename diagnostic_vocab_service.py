@@ -457,21 +457,21 @@ def load_and_parse_diagnostic_vocab_paths(file_paths: list[str]) -> dict:
 
 
 def build_diagnostic_choice_options(row: dict, *, randomizer: random.Random | None = None) -> list[str]:
-    options = [
+    answer_options = [
         _safe_text(row.get("correct_answer")),
         _safe_text(row.get("wrong_option_1")),
         _safe_text(row.get("wrong_option_2")),
         _safe_text(row.get("wrong_option_3")),
-        UNCERTAIN_OPTION,
     ]
     deduped = []
-    for option in options:
+    for option in answer_options:
         if option and option not in deduped:
             deduped.append(option)
     if randomizer is None:
         random.shuffle(deduped)
     else:
         randomizer.shuffle(deduped)
+    deduped.append(UNCERTAIN_OPTION)
     return deduped
 
 
