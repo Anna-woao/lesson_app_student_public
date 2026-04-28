@@ -17,7 +17,6 @@ from student_home_viewmodel import build_student_home_viewmodel
 
 st.set_page_config(page_title="英语辅导系统｜学生端", layout="wide")
 st.title("英语辅导系统｜学生端")
-st.write("这里是学生使用的前台页面。")
 
 SECTION_LABELS = {
     "home": "学习首页",
@@ -408,12 +407,39 @@ def _count_answered_vocab_questions(questions) -> int:
 
 def _render_vocab_test_intro(payload_exists: bool, result_exists: bool):
     if payload_exists:
-        st.info("当前有一轮正在进行中的词汇检测。先完成这一轮，再开始新的检测。")
+        st.markdown(
+            """
+            <div class="student-home-card">
+                <div class="student-home-kicker">进行中</div>
+                <div class="student-home-task-title">这一轮词汇检测还没完成</div>
+                <p class="student-home-task-desc">先把当前题目做完，再开始下一轮，会更容易看清今天真正需要巩固的词。</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         return
     if result_exists:
-        st.info("这里保留你刚完成的检测结果，也可以直接开始下一轮。")
+        st.markdown(
+            """
+            <div class="student-home-card">
+                <div class="student-home-kicker">结果已保留</div>
+                <div class="student-home-task-title">你刚完成的这轮检测还在这里</div>
+                <p class="student-home-task-desc">先回看结果也可以，准备好了再开始下一轮。</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         return
-    st.info("词汇检测页只负责一件事：开始检测并完成答题。先选择一种检测方式，然后进入本轮任务。")
+    st.markdown(
+        """
+        <div class="student-home-card">
+            <div class="student-home-kicker">Vocabulary Check</div>
+            <div class="student-home-task-title">先选一种检测方式，再直接完成这一轮</div>
+            <p class="student-home-task-desc">这里不放杂项入口，只负责开始检测、完成答题、回看结果。</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _render_vocab_test_result_panel(result: dict):
@@ -1350,33 +1376,18 @@ def _prepare_initial_diagnosis_definition(*, force_refresh: bool = False):
 
 
 def _render_diagnostic_vocab_bank_status():
-    st.markdown("### 首次诊断词汇题库状态")
     try:
         status = dbs.get_diagnostic_vocab_bank_status()
     except Exception as exc:
-        st.error(f"题库状态读取失败：{exc}")
+        st.error("首次诊断暂时还不能开始，请稍后再试。")
         return {"ready_for_diagnosis": False, "load_error": str(exc)}
 
     total_count = status.get("total_count", 0)
     ready_for_diagnosis = bool(status.get("ready_for_diagnosis"))
     if ready_for_diagnosis:
-        st.success(f"已检测到 {total_count} 道正式词汇诊断题，首次诊断可以从 Supabase 正常抽题。")
+        st.success(f"诊断题库已就绪，本次会从 {total_count} 道正式题里为你生成个人诊断。")
     else:
-        st.warning("当前正式词汇诊断题库为空，首次诊断还不能从 Supabase 抽题。")
-
-    cols = st.columns(4)
-    with cols[0]:
-        st.metric("题库总数", total_count)
-    with cols[1]:
-        st.metric("Anchor 题", status.get("anchor_count", 0))
-    with cols[2]:
-        st.metric("Active 题", status.get("active_count", 0))
-    with cols[3]:
-        st.metric("Inactive 题", status.get("inactive_count", 0))
-
-    st.write("L1-L5 分布", status.get("level_counts", {}))
-    st.write("题型分布", status.get("question_type_counts", {}))
-    st.write("版本分布", status.get("version_counts", {}))
+        st.warning("诊断题库还在准备中，当前还不能开始首次诊断。")
     return status
 
 
@@ -1730,30 +1741,7 @@ def _render_profile_page(home_data: dict):
 
 
 def _render_diagnostic_vocab_preview_box():
-    st.markdown("### ??????????")
-    st.caption("????????????????????????????????")
-    if st.button("?? 80 ????????", key="student_preview_diagnostic_vocab_btn"):
-        try:
-            st.session_state["student_diagnostic_vocab_preview_bundle"] = dbs.get_diagnostic_vocab_preview_bundle()
-        except Exception as exc:
-            st.error(f"?????????????{exc}")
-
-    preview_bundle = st.session_state.get("student_diagnostic_vocab_preview_bundle")
-    if not preview_bundle:
-        return
-
-    summary = preview_bundle.get("summary", {})
-    questions = preview_bundle.get("questions", [])
-    st.success(f"??? {summary.get('total_count', len(questions))} ??")
-    st.write("L1-L5 ???", summary.get("level_counts", {}))
-    st.write("Question type ???", summary.get("question_type_counts", {}))
-
-    with st.expander("??? 5 ????", expanded=False):
-        for idx, question in enumerate(questions[:5], start=1):
-            st.markdown(f"**{idx}. [{question.get('level')}] {question.get('question_type')}**")
-            st.write(question.get("question_text"))
-            if question.get("question_type") == "polysemy_context" and question.get("sentence"):
-                st.caption(f"Sentence: {question.get('sentence')}")
+    return
             st.write("???", question.get("options", []))
             st.caption(
                 f"Tag={question.get('diagnostic_tag')} | "
@@ -2014,7 +2002,15 @@ def _build_lesson_download_html(lesson: dict) -> str:
     parts = parse_lesson_text_to_parts(lesson.get("content", ""))
     title_bits = [str(lesson.get("lesson_type") or "英语学案"), str(lesson.get("topic") or "")]
     title = " - ".join([bit for bit in title_bits if bit])
-    return build_downloadable_lesson_html(parts, title=title or "英语学案")
+    student = st.session_state.get("student_login", {}) or {}
+    lesson_meta = {
+        "student_name": student.get("name", "学生"),
+        "grade": student.get("grade", ""),
+        "lesson_type": lesson.get("lesson_type", ""),
+        "difficulty": lesson.get("difficulty", ""),
+        "topic": lesson.get("topic", ""),
+    }
+    return build_downloadable_lesson_html(parts, title=title or "英语学案", lesson_meta=lesson_meta)
 
 
 def _looks_like_html(content: str) -> bool:
