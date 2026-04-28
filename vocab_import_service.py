@@ -11,6 +11,32 @@ from openpyxl import load_workbook
 from supabase_client import get_admin_supabase_client, get_supabase_client
 
 
+_POS_ALIASES = {
+    "a.": "adj.",
+    "adj.": "adj.",
+    "ad.": "adv.",
+    "adv.": "adv.",
+    "n.": "n.",
+    "v.": "v.",
+    "vi.": "vi.",
+    "vt.": "vt.",
+    "prep.": "prep.",
+    "conj.": "conj.",
+    "pron.": "pron.",
+    "num.": "num.",
+    "art.": "art.",
+    "det.": "det.",
+    "aux.": "aux.",
+    "int.": "int.",
+    "phr.": "phr.",
+    "abbr.": "abbr.",
+}
+_POS_TOKEN_PATTERN = "|".join(re.escape(token) for token in sorted(_POS_ALIASES, key=len, reverse=True))
+_POS_PREFIX_TOKEN_PATTERN = re.compile(rf"^\s*&?\s*({_POS_TOKEN_PATTERN})", re.IGNORECASE)
+_POS_ANY_TOKEN_PATTERN = re.compile(rf"&?\s*({_POS_TOKEN_PATTERN})", re.IGNORECASE)
+_POS_SEPARATORS = " \t\r\n.&/\\-:,;，,；;、:："
+
+
 VOCAB_IMPORT_CHUNK_SIZE = 200
 COLUMN_ROLES = [
     "ignore",
@@ -64,17 +90,47 @@ def _normalize_lemma(text: str) -> str:
     return value
 
 
+def _normalize_pos_label(pos_text: str) -> str:
+    tokens = []
+    for match in _POS_ANY_TOKEN_PATTERN.finditer(str(pos_text or "").strip().lower()):
+        token = _POS_ALIASES.get(match.group(1).lower())
+        if token and token not in tokens:
+            tokens.append(token)
+    return " & ".join(tokens)
+
+
+def _strip_pos_prefix(text: str):
+    remaining = str(text or "").strip()
+    tokens = []
+    while remaining:
+        match = _POS_PREFIX_TOKEN_PATTERN.match(remaining)
+        if not match:
+            break
+        token = _POS_ALIASES.get(match.group(1).lower())
+        if token and token not in tokens:
+            tokens.append(token)
+        remaining = remaining[match.end():].lstrip(_POS_SEPARATORS)
+    return " & ".join(tokens), remaining.strip()
+
+
+def _clean_meaning_pos_labels(text: str) -> str:
+    _pos, remaining = _strip_pos_prefix(text)
+    remaining = _POS_ANY_TOKEN_PATTERN.sub("；", remaining)
+    remaining = re.sub(r"[；;]\s*[；;]+", "；", remaining)
+    remaining = re.sub(r"\s+", " ", remaining)
+    return remaining.strip(_POS_SEPARATORS)
+
+
 def _extract_pos_and_meaning(raw_meaning: str, explicit_pos: str = ""):
-    pos = (explicit_pos or "").strip()
+    pos = _normalize_pos_label(explicit_pos)
     text = (raw_meaning or "").strip()
     if pos:
-        return pos, text
+        return pos, _clean_meaning_pos_labels(text)
     if not text:
         return "", ""
-    match = re.match(r"^([A-Za-z][A-Za-z\s./-]*\.)\s*(.+)$", text)
-    if match:
-        return match.group(1).strip(), match.group(2).strip()
-    return "", text
+    parsed_pos, meaning = _strip_pos_prefix(text)
+    all_pos = _normalize_pos_label(text)
+    return all_pos or parsed_pos, _clean_meaning_pos_labels(meaning if parsed_pos else text)
 
 
 def _looks_like_ipa(value: Any) -> bool:
@@ -93,7 +149,7 @@ def _looks_like_meaning(value: Any) -> bool:
         return False
     if re.search(r"[\u4e00-\u9fff]", text):
         return True
-    return any(text.startswith(prefix) for prefix in ["n.", "v.", "adj.", "adv.", "prep.", "conj.", "pron."])
+    return bool(_POS_PREFIX_TOKEN_PATTERN.match(text))
 
 
 def _looks_like_term(value: Any) -> bool:
