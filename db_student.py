@@ -391,21 +391,47 @@ def _fetch_vocab_map(vocab_ids: List[int]) -> Dict[int, Tuple[str, str]]:
     return {r["id"]: (r.get("lemma", ""), r.get("default_meaning", "") or "") for r in rows}
 
 
-_POS_PREFIX_PATTERN = re.compile(
-    r"^\s*(?:"
-    r"num\.|pron\.|prep\.|conj\.|abbr\.|aux\.|art\.|det\.|"
-    r"n\.|v\.|vi\.|vt\.|adj\.|adv\.|phr\.|int\.|"
-    r"vt\.\s*&\s*vi\.|vi\.\s*&\s*vt\.|adj\.\s*&\s*adv\."
-    r")\s*",
-    re.IGNORECASE,
-)
+_POS_ALIASES = {
+    "a.": "adj.",
+    "adj.": "adj.",
+    "ad.": "adv.",
+    "adv.": "adv.",
+    "n.": "n.",
+    "v.": "v.",
+    "vi.": "vi.",
+    "vt.": "vt.",
+    "prep.": "prep.",
+    "conj.": "conj.",
+    "pron.": "pron.",
+    "num.": "num.",
+    "art.": "art.",
+    "det.": "det.",
+    "aux.": "aux.",
+    "int.": "int.",
+    "phr.": "phr.",
+    "abbr.": "abbr.",
+}
+_POS_TOKEN_PATTERN = "|".join(re.escape(token) for token in sorted(_POS_ALIASES, key=len, reverse=True))
+_POS_PREFIX_PATTERN = re.compile(rf"^\s*&?\s*({_POS_TOKEN_PATTERN})", re.IGNORECASE)
+_POS_ANY_PATTERN = re.compile(rf"&?\s*({_POS_TOKEN_PATTERN})", re.IGNORECASE)
+_POS_SEPARATORS = " \t\r\n.&/\\-:,;，,；;、:："
 
 
 def _student_display_meaning(raw_meaning: str) -> str:
     text = str(raw_meaning or "").strip()
     if not text:
         return ""
-    text = _POS_PREFIX_PATTERN.sub("", text, count=1).strip()
+    while text:
+        match = _POS_PREFIX_PATTERN.match(text)
+        if not match:
+            break
+        text = text[match.end():].lstrip(_POS_SEPARATORS)
+
+    # A few imported meanings contain later POS labels glued to Chinese senses
+    # ("...因为prep.作为"). Strip labels from display/distractor text.
+    text = _POS_ANY_PATTERN.sub("；", text)
+    text = re.sub(r"[；;]\s*[；;]+", "；", text)
+    text = re.sub(r"\s+", " ", text).strip(_POS_SEPARATORS)
     return text or str(raw_meaning or "").strip()
 
 
