@@ -1742,12 +1742,6 @@ def _render_profile_page(home_data: dict):
 
 def _render_diagnostic_vocab_preview_box():
     return
-            st.write("???", question.get("options", []))
-            st.caption(
-                f"Tag={question.get('diagnostic_tag')} | "
-                f"Value={question.get('diagnostic_value')} | "
-                f"??????={question.get('has_uncertain_option')}"
-            )
 
 def _render_initial_diagnosis(student_id: int):
     _render_section_anchor("initial_diagnosis")
