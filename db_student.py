@@ -17,6 +17,7 @@ from student_records_data import (
     get_latest_diagnosis_record,
     get_latest_profile_snapshot,
     get_lesson_detail_for_student,
+    get_lesson_vocab_bundle_for_student,
     get_lesson_new_vocab_for_student,
     get_student_activity_dates,
     get_student_learned_vocab,
@@ -412,7 +413,15 @@ _POS_ALIASES = {
     "abbr.": "abbr.",
 }
 _POS_TOKEN_PATTERN = "|".join(re.escape(token) for token in sorted(_POS_ALIASES, key=len, reverse=True))
-_POS_PREFIX_PATTERN = re.compile(rf"^\s*&?\s*({_POS_TOKEN_PATTERN})", re.IGNORECASE)
+_POS_PREFIX_TOKEN_PATTERN_TEXT = (
+    r"linking\.?|modal\.?|prep\.?|conj\.?|pron\.?|abbr\.?|"
+    r"num\.?|art\.?|det\.?|aux\.?|adj\.?|adv\.?|phr\.?|"
+    r"int\.?|vi\.?|vt\.?|ad\.?|n\.?|v\.?|a\.?"
+)
+_POS_PREFIX_PATTERN = re.compile(
+    rf"^\s*&?\s*({_POS_PREFIX_TOKEN_PATTERN_TEXT})(?=\s|&|[\u4e00-\u9fff]|$)",
+    re.IGNORECASE,
+)
 _POS_ANY_PATTERN = re.compile(rf"&?\s*({_POS_TOKEN_PATTERN})", re.IGNORECASE)
 _POS_SEPARATORS = " \t\r\n.&/\\-:,;，,；;、:："
 
@@ -430,6 +439,7 @@ def _student_display_meaning(raw_meaning: str) -> str:
     # A few imported meanings contain later POS labels glued to Chinese senses
     # ("...因为prep.作为"). Strip labels from display/distractor text.
     text = _POS_ANY_PATTERN.sub("；", text)
+    text = text.replace("&", "；")
     text = re.sub(r"[；;]\s*[；;]+", "；", text)
     text = re.sub(r"\s+", " ", text).strip(_POS_SEPARATORS)
     return text or str(raw_meaning or "").strip()
