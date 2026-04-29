@@ -184,9 +184,7 @@ def _run_task_action(student_id: int, task_card: dict) -> bool:
     target_section = task_card.get("target_section") or "task_pool"
 
     if action_type == "start_initial_diagnosis":
-        st.session_state["student_diagnosis_active"] = True
-        st.session_state["student_diagnosis_step"] = 0
-        st.session_state["student_diagnosis_answers"] = {}
+        _activate_initial_diagnosis(force_refresh=True)
         _set_focus_section("initial_diagnosis")
         return True
 
@@ -224,24 +222,40 @@ def _run_task_action(student_id: int, task_card: dict) -> bool:
     return True
 
 
+def _activate_initial_diagnosis(*, force_refresh: bool = False) -> None:
+    _clear_diagnosis_session_state()
+    definition = _prepare_initial_diagnosis_definition(force_refresh=force_refresh)
+    started_at = datetime.utcnow().isoformat()
+    st.session_state["student_diagnosis_definition"] = definition
+    st.session_state["student_diagnosis_active"] = True
+    st.session_state["student_diagnosis_step"] = 0
+    st.session_state["student_diagnosis_answers"] = {}
+    st.session_state["student_diagnosis_started_at"] = started_at
+    st.session_state["student_diagnosis_module_started_at"] = started_at
+    st.session_state["student_diagnosis_module_started_at_map"] = {}
+    st.session_state["student_diagnosis_vocab_page"] = 0
+    st.session_state.pop("student_diagnosis_missing_question_ids", None)
+    st.session_state.pop("student_diagnosis_missing_page", None)
+
+
 def _format_progress_status_copy(status: str):
     mapping = {
-        "learning": ("????", "??????????????????????????????"),
-        "review": ("????", "???????????????????????????"),
-        "mastered": ("????", "????????????????????????"),
+        "learning": ("正在学习", "这些词刚进入你的学习进度，先把它们认熟、看稳。"),
+        "review": ("进入复习", "这些词已经学过一轮，接下来会按节奏反复巩固。"),
+        "mastered": ("阶段掌握", "这些词当前表现稳定，可以先继续往下推进。"),
     }
     return mapping.get(status or "learning", mapping["learning"])
 
 
 def _format_next_review_time(next_review_time: str | None) -> str:
     if not next_review_time:
-        return "??????????????"
+        return "暂未安排下次复习"
     try:
         normalized = str(next_review_time).replace("Z", "+00:00")
         dt = datetime.fromisoformat(normalized)
-        return f"?????????{dt.strftime('%m-%d %H:%M')}"
+        return f"建议复习：{dt.strftime('%m-%d %H:%M')}"
     except Exception:
-        return f"?????????{next_review_time}"
+        return f"建议复习：{next_review_time}"
 
 
 def _build_test_result_summary(result: dict):
@@ -249,37 +263,37 @@ def _build_test_result_summary(result: dict):
     test_type = result.get("test_type")
     accuracy = float(result.get("accuracy") or 0)
 
-    if source_type == "progress" and test_type == "????":
-        title = "???????????????"
+    if source_type == "progress" and test_type == "新词检测":
+        title = "新词摸底已经完成"
         if accuracy >= 0.8:
-            desc = "??????????????????????????????"
+            desc = "这批新词里你已经会了不少，可以把更多精力放到还不稳的词上。"
         elif accuracy >= 0.5:
-            desc = "????????????????????????????????????????"
+            desc = "你已经有一部分基础，接下来适合把没答稳的词继续推进到学习进度里。"
         else:
-            desc = "?????????????????????????????"
+            desc = "这批词还比较陌生，先按系统安排逐步学习会更稳。"
         return title, desc
 
-    if source_type == "progress" and test_type == "????":
-        title = "????????????????????"
+    if source_type == "progress" and test_type == "复习检测":
+        title = "已学词复习已经完成"
         if accuracy >= 0.8:
-            desc = "????????????????????????????"
+            desc = "你对这批已学词保持得不错，可以继续扩大自己的稳定词汇量。"
         elif accuracy >= 0.5:
-            desc = "??????????????????????????????????"
+            desc = "这批词有些已经稳住了，也有一些需要继续回看，系统会同步调整复习节奏。"
         else:
-            desc = "????????????????????????????????"
+            desc = "这批已学词里还有不少需要回炉，先把这些词重新巩固一轮会更合适。"
         return title, desc
 
     if source_type == "book":
-        title = "????????????????????"
+        title = "词汇书抽词检测已经完成"
         if accuracy >= 0.8:
-            desc = "??????????????????????????????????"
+            desc = "你对当前词汇书的掌握不错，可以继续往后推进新的内容。"
         elif accuracy >= 0.5:
-            desc = "????????????????????????????"
+            desc = "当前词汇书有一部分已经掌握，接下来继续推进和复习会更有效。"
         else:
-            desc = "????????????????????????????"
+            desc = "当前词汇书里还有不少词没答稳，先把这一轮基础打牢会更好。"
         return title, desc
 
-    return "?????????", "?????????????????????????????"
+    return "本轮检测已完成", "系统已经根据这次作答更新了你的词汇学习状态。"
 
 
 def _render_test_feedback_blocks(results):
@@ -1743,7 +1757,7 @@ def _render_profile_page(home_data: dict):
 def _render_diagnostic_vocab_preview_box():
     return
 
-def _render_initial_diagnosis(student_id: int):
+def _render_initial_diagnosis_legacy(student_id: int):
     _render_section_anchor("initial_diagnosis")
     st.header("首次诊断")
     _render_section_focus_badge("initial_diagnosis")
@@ -2078,7 +2092,6 @@ def _show_lesson_detail_dialog(student_id: int, lesson_id: int):
         st.warning("没有找到这份学案，或这份学案不属于当前学生。")
         return
 
-    st.write(f"学案 ID：{detail.get('id')}")
     st.write(f"类型：{detail.get('lesson_type')}")
     st.write(f"主题：{detail.get('topic')}")
     st.write(f"创建时间：{detail.get('created_at')}")
@@ -2088,7 +2101,6 @@ def _show_lesson_detail_dialog(student_id: int, lesson_id: int):
 @st.dialog("本次学案新词表")
 def _show_lesson_vocab_dialog(student_id: int, lesson_id: int):
     rows = dbs.get_lesson_new_vocab_for_student(student_id, lesson_id)
-    st.write(f"学案 ID：{lesson_id}")
     st.write(f"新词数量：{len(rows)}")
     _render_lesson_vocab_rows(rows)
 
@@ -2160,7 +2172,7 @@ def _render_lessons(student_id: int):
         st.markdown(
             f"""
             <div class="student-home-card">
-                <div class="student-home-kicker">学案 ID：{lesson_id}</div>
+                <div class="student-home-kicker">最近学案</div>
                 <div class="student-home-task-title">{topic or lesson_type or '本次学案'}</div>
                 <p class="student-home-subtitle">题型：{lesson_type or '未标注'} ｜ 难度：{difficulty or '未标注'}</p>
                 <p class="student-home-task-desc">创建时间：{created_at or '暂无记录'}</p>
@@ -2350,7 +2362,7 @@ def _render_test_history(student_id: int):
         st.markdown(
             f"""
             <div class="student-home-card">
-                <div class="student-home-kicker">检测记录 ID：{test_record_id}{retry_tag}</div>
+                <div class="student-home-kicker">检测记录{retry_tag}</div>
                 <div class="student-home-task-title">{source_label or '词汇检测记录'}</div>
                 <p class="student-home-subtitle">检测类型：{test_type} ｜ 作答方式：{test_mode}</p>
                 <p class="student-home-task-desc">
@@ -2605,18 +2617,11 @@ def _render_initial_diagnosis(student_id: int):
         st.info("你已经完成过一次首次诊断，下面展示的是当前保存的诊断结果。")
         _render_diagnosis_result(saved_result)
         if st.button("重新做一次首次诊断", key="restart_initial_diagnosis"):
-            _clear_diagnosis_session_state()
             try:
-                _prepare_initial_diagnosis_definition(force_refresh=True)
+                _activate_initial_diagnosis(force_refresh=True)
             except Exception as exc:
                 st.error(f"正式诊断题库重新加载失败：{exc}")
                 return
-            st.session_state["student_diagnosis_active"] = True
-            st.session_state["student_diagnosis_step"] = 0
-            st.session_state["student_diagnosis_answers"] = {}
-            st.session_state["student_diagnosis_started_at"] = datetime.utcnow().isoformat()
-            st.session_state["student_diagnosis_module_started_at"] = datetime.utcnow().isoformat()
-            st.session_state["student_diagnosis_module_started_at_map"] = {}
             st.rerun()
         return
 
@@ -2663,16 +2668,10 @@ def _render_initial_diagnosis(student_id: int):
                 st.error("正式词汇诊断题库还没有准备好，当前不能开始首次诊断。请先确认 Supabase 中已有 diagnostic_vocab_items 数据。")
                 return
             try:
-                _prepare_initial_diagnosis_definition(force_refresh=True)
+                _activate_initial_diagnosis(force_refresh=True)
             except Exception as exc:
                 st.error(f"首次诊断无法启动：{exc}")
                 return
-            st.session_state["student_diagnosis_active"] = True
-            st.session_state["student_diagnosis_step"] = 0
-            st.session_state["student_diagnosis_answers"] = {}
-            st.session_state["student_diagnosis_started_at"] = datetime.utcnow().isoformat()
-            st.session_state["student_diagnosis_module_started_at"] = datetime.utcnow().isoformat()
-            st.session_state["student_diagnosis_module_started_at_map"] = {}
             st.rerun()
         return
 
@@ -2893,26 +2892,6 @@ def _render_initial_diagnosis(student_id: int):
         _clear_diagnosis_session_state()
         st.session_state["student_diagnosis_flash"] = result
         st.rerun()
-
-
-def _show_debug_info():
-    with st.expander("调试信息", expanded=True):
-        try:
-            secret_keys = set(dict(st.secrets).keys())
-        except Exception:
-            secret_keys = set()
-
-        st.write("SUPABASE_URL：", "已配置" if "SUPABASE_URL" in secret_keys else "未配置")
-        st.write("SUPABASE_PUBLISHABLE_KEY：", "已配置" if "SUPABASE_PUBLISHABLE_KEY" in secret_keys else "未配置")
-
-
-def _safe_render(section_name: str, render_func, student_id: int):
-    try:
-        render_func(student_id)
-    except Exception as e:
-        st.error(f"{section_name} 加载失败")
-        st.exception(e)
-
 
 if __name__ == "__main__":
     main()
