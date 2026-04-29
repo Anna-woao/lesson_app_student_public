@@ -32,7 +32,15 @@ _POS_ALIASES = {
     "abbr.": "abbr.",
 }
 _POS_TOKEN_PATTERN = "|".join(re.escape(token) for token in sorted(_POS_ALIASES, key=len, reverse=True))
-_POS_PREFIX_TOKEN_PATTERN = re.compile(rf"^\s*&?\s*({_POS_TOKEN_PATTERN})", re.IGNORECASE)
+_POS_PREFIX_TOKEN_PATTERN_TEXT = (
+    r"linking\.?|modal\.?|prep\.?|conj\.?|pron\.?|abbr\.?|"
+    r"num\.?|art\.?|det\.?|aux\.?|adj\.?|adv\.?|phr\.?|"
+    r"int\.?|vi\.?|vt\.?|ad\.?|n\.?|v\.?|a\.?"
+)
+_POS_PREFIX_TOKEN_PATTERN = re.compile(
+    rf"^\s*&?\s*({_POS_PREFIX_TOKEN_PATTERN_TEXT})(?=\s|&|[\u4e00-\u9fff]|$)",
+    re.IGNORECASE,
+)
 _POS_ANY_TOKEN_PATTERN = re.compile(rf"&?\s*({_POS_TOKEN_PATTERN})", re.IGNORECASE)
 _POS_SEPARATORS = " \t\r\n.&/\\-:,;，,；;、:："
 
@@ -92,6 +100,36 @@ def _normalize_lemma(text: str) -> str:
 
 def _normalize_pos_label(pos_text: str) -> str:
     tokens = []
+    remaining = str(pos_text or "").strip().lower()
+    while remaining:
+        match = _POS_PREFIX_TOKEN_PATTERN.match(remaining)
+        if not match:
+            break
+        raw_token = match.group(1).lower()
+        token = _POS_ALIASES.get(raw_token if raw_token.endswith(".") else f"{raw_token}.")
+        if token and token not in tokens:
+            tokens.append(token)
+        remaining = remaining[match.end():].lstrip(_POS_SEPARATORS)
+    if not tokens:
+        for match in _POS_ANY_TOKEN_PATTERN.finditer(str(pos_text or "").strip().lower()):
+            token = _POS_ALIASES.get(match.group(1).lower())
+            if token and token not in tokens:
+                tokens.append(token)
+    return " & ".join(tokens)
+
+
+def _merge_pos_labels(*labels: str) -> str:
+    tokens = []
+    for label in labels:
+        for token in _normalize_pos_label(label).split(" & "):
+            token = token.strip()
+            if token and token not in tokens:
+                tokens.append(token)
+    return " & ".join(tokens)
+
+
+def _normalize_dotted_pos_labels(pos_text: str) -> str:
+    tokens = []
     for match in _POS_ANY_TOKEN_PATTERN.finditer(str(pos_text or "").strip().lower()):
         token = _POS_ALIASES.get(match.group(1).lower())
         if token and token not in tokens:
@@ -106,7 +144,8 @@ def _strip_pos_prefix(text: str):
         match = _POS_PREFIX_TOKEN_PATTERN.match(remaining)
         if not match:
             break
-        token = _POS_ALIASES.get(match.group(1).lower())
+        raw_token = match.group(1).lower()
+        token = _POS_ALIASES.get(raw_token if raw_token.endswith(".") else f"{raw_token}.")
         if token and token not in tokens:
             tokens.append(token)
         remaining = remaining[match.end():].lstrip(_POS_SEPARATORS)
@@ -116,6 +155,7 @@ def _strip_pos_prefix(text: str):
 def _clean_meaning_pos_labels(text: str) -> str:
     _pos, remaining = _strip_pos_prefix(text)
     remaining = _POS_ANY_TOKEN_PATTERN.sub("；", remaining)
+    remaining = remaining.replace("&", "；")
     remaining = re.sub(r"[；;]\s*[；;]+", "；", remaining)
     remaining = re.sub(r"\s+", " ", remaining)
     return remaining.strip(_POS_SEPARATORS)
@@ -129,7 +169,7 @@ def _extract_pos_and_meaning(raw_meaning: str, explicit_pos: str = ""):
     if not text:
         return "", ""
     parsed_pos, meaning = _strip_pos_prefix(text)
-    all_pos = _normalize_pos_label(text)
+    all_pos = _merge_pos_labels(parsed_pos, _normalize_dotted_pos_labels(text))
     return all_pos or parsed_pos, _clean_meaning_pos_labels(meaning if parsed_pos else text)
 
 
