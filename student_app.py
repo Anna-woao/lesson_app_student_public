@@ -565,7 +565,6 @@ def _render_login():
         student = dbs.authenticate_student(login_account, login_password)
     except Exception as e:
         st.error("登录功能暂时不可用，请联系老师检查学生账号字段是否已经配置。")
-        st.exception(e)
         return None
 
     if not student:
@@ -1758,6 +1757,9 @@ def _render_diagnostic_vocab_preview_box():
     return
 
 def _render_initial_diagnosis_legacy(student_id: int):
+    """Deprecated legacy implementation retained only as a no-op placeholder."""
+    return
+
     _render_section_anchor("initial_diagnosis")
     st.header("首次诊断")
     _render_section_focus_badge("initial_diagnosis")
@@ -2886,7 +2888,6 @@ def _render_initial_diagnosis(student_id: int):
             )
         except Exception as exc:
             st.error("诊断结果保存失败，请联系管理员检查 Supabase 配置。")
-            st.exception(exc)
             return
 
         _clear_diagnosis_session_state()
