@@ -1130,6 +1130,26 @@ def parse_lesson_text_to_parts(content: str) -> dict:
     return parts
 
 
+def build_lesson_plain_text(parts: dict, fallback_raw: str = "") -> str:
+    if not parts:
+        return (fallback_raw or "").strip()
+
+    ordered_blocks = []
+    for key, title in LESSON_PART_TITLES:
+        part_text = (parts.get(key) or "").strip()
+        if not part_text:
+            continue
+        if part_text.startswith(title):
+            ordered_blocks.append(part_text)
+        else:
+            ordered_blocks.append(f"{title}\n{part_text}")
+
+    if ordered_blocks:
+        return "\n\n".join(ordered_blocks).strip()
+
+    return (parts.get("raw") or fallback_raw or "").strip()
+
+
 def build_downloadable_lesson_html(parts: dict, title: str = "英语学案", lesson_meta: dict | None = None) -> str:
     body_html = _build_meta_header_html(lesson_meta) + build_full_lesson_preview_html(parts)
     if not body_html and parts.get("raw"):
