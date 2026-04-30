@@ -8,6 +8,7 @@ import hmac
 import random
 import re
 import secrets
+import unicodedata
 from typing import Dict, List, Optional, Tuple
 
 from supabase_client import get_admin_supabase_client, get_supabase_client
@@ -19,6 +20,8 @@ from student_records_data import (
     get_lesson_detail_for_student,
     get_lesson_vocab_bundle_for_student,
     get_lesson_new_vocab_for_student,
+    get_student_lesson_snapshot,
+    get_student_recent_lesson_snapshots,
     get_student_activity_dates,
     get_student_learned_vocab,
     get_student_learned_vocab_summary,
@@ -814,8 +817,8 @@ def _build_questions_from_vocab_map(vocab_map, rows, test_mode: str):
             random.shuffle(distractors)
             options = [meaning] + distractors[:3]
             options = list(dict.fromkeys(options))
-            options.append("我不确定")
             random.shuffle(options)
+            options.append("我不确定")
             q["options"] = options
 
         questions.append(q)
@@ -832,18 +835,27 @@ def _normalize_test_mode(mode: str) -> str:
     return normalized
 
 
+def _normalize_vocab_answer_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", str(text or ""))
+    normalized = normalized.strip().casefold()
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = normalized.strip(".,;:!?\"'()[]{}<>`~，。；：！？“”‘’（）【】《》、")
+    return normalized
+
+
 def _grade_vocab_test_answer(question: dict, user_answer: str) -> tuple[bool, bool]:
     mode = _normalize_test_mode(question.get("mode"))
-    normalized_answer = str(user_answer or "").strip()
-    is_uncertain = normalized_answer == "我不确定"
+    raw_answer = str(user_answer or "").strip()
+    normalized_answer = _normalize_vocab_answer_text(raw_answer)
+    is_uncertain = normalized_answer == _normalize_vocab_answer_text("我不确定")
 
     if mode == "英译中":
-        expected_answer = str(question.get("meaning") or "").strip()
+        expected_answer = _normalize_vocab_answer_text(question.get("meaning") or "")
         is_correct = (not is_uncertain) and normalized_answer == expected_answer
         return is_correct, is_uncertain
 
-    expected_word = str(question.get("word") or "").strip().casefold()
-    is_correct = normalized_answer.casefold() == expected_word
+    expected_word = _normalize_vocab_answer_text(question.get("word") or "")
+    is_correct = normalized_answer == expected_word
     return is_correct, is_uncertain
 
 
