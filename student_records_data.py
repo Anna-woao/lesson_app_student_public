@@ -113,8 +113,10 @@ def _build_lesson_vocab_bundle(lesson: dict, supabase):
 
     return {
         "lesson_id": lesson.get("id"),
+        "difficulty": lesson.get("difficulty", "") or "",
         "lesson_type": lesson.get("lesson_type", "") or "",
         "topic": lesson.get("topic", "") or "",
+        "content": lesson.get("content", "") or "",
         "created_at": lesson.get("created_at", "") or "",
         "new_words": bundle_rows["new"],
         "review_words": bundle_rows["review"],
@@ -122,48 +124,70 @@ def _build_lesson_vocab_bundle(lesson: dict, supabase):
     }
 
 
-def get_lesson_vocab_bundle_for_student(student_id: int, lesson_id: int):
+def _build_student_lesson_snapshot(lesson: dict, supabase):
+    vocab_bundle = _build_lesson_vocab_bundle(lesson, supabase)
+    return {
+        "id": lesson.get("id"),
+        "lesson_type": lesson.get("lesson_type", "") or "",
+        "difficulty": lesson.get("difficulty", "") or "",
+        "topic": lesson.get("topic", "") or "",
+        "content": lesson.get("content", "") or "",
+        "created_at": lesson.get("created_at", "") or "",
+        "vocab_bundle": vocab_bundle,
+    }
+
+
+def _fetch_student_lesson_rows(student_id: int, *, lesson_id: int | None = None, limit: int | None = None):
     supabase = get_supabase_client()
-    lesson_resp = (
-        supabase.table("lessons")
-        .select("id, lesson_type, topic, content, created_at")
-        .eq("student_id", student_id)
-        .eq("id", lesson_id)
-        .limit(1)
-        .execute()
-    )
-    rows = lesson_resp.data or []
-    if not rows:
-        return None
-    return _build_lesson_vocab_bundle(rows[0], supabase)
-
-
-def get_student_recent_lessons(student_id: int, limit: int = 10):
-    supabase = get_supabase_client()
-    resp = (
-        supabase.table("lessons")
-        .select("id, lesson_type, difficulty, topic, created_at")
-        .eq("student_id", student_id)
-        .order("created_at", desc=True)
-        .limit(limit)
-        .execute()
-    )
-    rows = resp.data or []
-    return [(r["id"], r.get("lesson_type"), r.get("difficulty"), r.get("topic"), r.get("created_at")) for r in rows]
-
-
-def get_lesson_detail_for_student(student_id: int, lesson_id: int):
-    supabase = get_supabase_client()
-    resp = (
+    query = (
         supabase.table("lessons")
         .select("id, lesson_type, difficulty, topic, content, created_at")
         .eq("student_id", student_id)
-        .eq("id", lesson_id)
-        .limit(1)
-        .execute()
+        .order("created_at", desc=True)
     )
-    rows = resp.data or []
-    return rows[0] if rows else None
+    if lesson_id is not None:
+        query = query.eq("id", lesson_id).limit(1)
+    elif limit is not None:
+        query = query.limit(limit)
+    rows = query.execute().data or []
+    return supabase, rows
+
+
+def get_student_lesson_snapshot(student_id: int, lesson_id: int):
+    supabase, rows = _fetch_student_lesson_rows(student_id, lesson_id=lesson_id)
+    if not rows:
+        return None
+    return _build_student_lesson_snapshot(rows[0], supabase)
+
+
+def get_student_recent_lesson_snapshots(student_id: int, limit: int = 10):
+    supabase, rows = _fetch_student_lesson_rows(student_id, limit=limit)
+    return [_build_student_lesson_snapshot(row, supabase) for row in rows]
+
+
+def get_lesson_vocab_bundle_for_student(student_id: int, lesson_id: int):
+    snapshot = get_student_lesson_snapshot(student_id, lesson_id)
+    if not snapshot:
+        return None
+    return snapshot.get("vocab_bundle")
+
+
+def get_student_recent_lessons(student_id: int, limit: int = 10):
+    snapshots = get_student_recent_lesson_snapshots(student_id, limit=limit)
+    return [
+        (
+            snapshot["id"],
+            snapshot.get("lesson_type"),
+            snapshot.get("difficulty"),
+            snapshot.get("topic"),
+            snapshot.get("created_at"),
+        )
+        for snapshot in snapshots
+    ]
+
+
+def get_lesson_detail_for_student(student_id: int, lesson_id: int):
+    return get_student_lesson_snapshot(student_id, lesson_id)
 
 
 def get_lesson_new_vocab_for_student(student_id: int, lesson_id: int):
@@ -252,17 +276,12 @@ def get_student_learned_vocab_summary(student_id: int):
         if normalized and normalized not in learned_by_normalized:
             learned_by_normalized[normalized] = vocab_map[vocab_item_id]
 
-    lesson_rows = _fetch_all_rows(
-        supabase.table("lessons")
-        .select("id, lesson_type, topic, content, created_at")
-        .eq("student_id", student_id)
-        .order("created_at", desc=True)
-    )
+    lesson_rows = get_student_recent_lesson_snapshots(student_id, limit=200)
 
     lesson_groups = []
     linked_vocab_ids = set()
     for lesson in lesson_rows:
-        bundle = _build_lesson_vocab_bundle(lesson, supabase)
+        bundle = lesson.get("vocab_bundle") or {}
         vocab_list = []
         seen_vocab_ids = set()
         for word in bundle.get("all_words", []):
@@ -283,10 +302,10 @@ def get_student_learned_vocab_summary(student_id: int):
             continue
 
         lesson_groups.append({
-            "lesson_id": bundle.get("lesson_id"),
-            "lesson_type": bundle.get("lesson_type", ""),
-            "topic": bundle.get("topic", ""),
-            "created_at": bundle.get("created_at", ""),
+            "lesson_id": lesson.get("id"),
+            "lesson_type": lesson.get("lesson_type", ""),
+            "topic": lesson.get("topic", ""),
+            "created_at": lesson.get("created_at", ""),
             "word_count": len(vocab_list),
             "words": vocab_list,
             "new_word_count": len(bundle.get("new_words", [])),
