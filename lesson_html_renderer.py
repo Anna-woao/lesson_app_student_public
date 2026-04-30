@@ -4,7 +4,7 @@ This module is intentionally Streamlit-free so the teacher app and student app
 can share the same browser-print HTML output without copying UI code.
 """
 
-from html import escape
+from html import escape, unescape
 import re
 
 
@@ -110,19 +110,89 @@ def _remove_part_title_if_needed(text: str, expected_title: str) -> str:
     return stripped
 
 
+def _coerce_html_to_text(text: str) -> str:
+    raw = text or ""
+    if "<" not in raw or ">" not in raw:
+        return raw
+
+    normalized = raw.replace("\r\n", "\n")
+    normalized = re.sub(r"(?i)<br\s*/?>", "\n", normalized)
+    normalized = re.sub(r"(?i)</p\s*>", "\n\n", normalized)
+    normalized = re.sub(r"(?i)</div\s*>", "\n", normalized)
+    normalized = re.sub(r"(?i)</h[1-6]\s*>", "\n", normalized)
+    normalized = re.sub(r"(?i)</li\s*>", "\n", normalized)
+    normalized = re.sub(r"(?i)</tr\s*>", "\n", normalized)
+    normalized = re.sub(r"(?i)</t[dh]\s*>", "\t", normalized)
+    normalized = re.sub(r"(?i)<li[^>]*>", "- ", normalized)
+    normalized = re.sub(r"(?i)<t[dh][^>]*>", "", normalized)
+    normalized = re.sub(r"(?i)<tr[^>]*>", "", normalized)
+    normalized = re.sub(r"(?i)<(table|thead|tbody|colgroup|col)[^>]*>", "", normalized)
+    normalized = re.sub(r"(?is)<script[^>]*>.*?</script>", "", normalized)
+    normalized = re.sub(r"(?is)<style[^>]*>.*?</style>", "", normalized)
+    normalized = re.sub(r"(?s)<[^>]+>", "", normalized)
+    normalized = unescape(normalized)
+    normalized = normalized.replace("\xa0", " ")
+    normalized = re.sub(r"\t{2,}", "\t", normalized)
+    normalized = re.sub(r"[ \t]+\n", "\n", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    return normalized.strip()
+
+
+def _split_part1_row(line: str):
+    line = (line or "").strip()
+    if not line:
+        return None
+
+    tab_parts = [part.strip() for part in line.split("\t") if part.strip()]
+    if len(tab_parts) >= 4:
+        return tab_parts[:4]
+
+    pipe_parts = [part.strip() for part in re.split(r"\s*\|\s*", line) if part.strip()]
+    if len(pipe_parts) >= 4:
+        return pipe_parts[:4]
+
+    multi_space_parts = [part.strip() for part in re.split(r"\s{2,}", line) if part.strip()]
+    if len(multi_space_parts) >= 4:
+        return multi_space_parts[:4]
+
+    compact_match = re.match(
+        r"^\s*(?P<word>[A-Za-z][A-Za-z\s'`-]*)\s+"
+        r"(?P<ipa>/.+?/|\[.+?\])\s+"
+        r"(?P<pos>[A-Za-z.]+)\s+"
+        r"(?P<meaning>.+?)\s*$",
+        line,
+    )
+    if compact_match:
+        return [
+            compact_match.group("word").strip(),
+            compact_match.group("ipa").strip(),
+            compact_match.group("pos").strip(),
+            compact_match.group("meaning").strip(),
+        ]
+    return None
+
+
 def parse_part1_table(part1_text: str):
     """
     把 Part 1 / Part 1B 的纯文本解析成表格数据。
     """
-    lines = [line.strip() for line in part1_text.splitlines() if line.strip()]
+    normalized_text = _coerce_html_to_text(part1_text)
+    lines = [line.strip() for line in normalized_text.splitlines() if line.strip()]
     if len(lines) < 3:
         return []
 
     rows = []
-    for line in lines[2:]:
-        parts = line.split("\t")
-        if len(parts) >= 4:
-            word, ipa, pos, meaning = parts[:4]
+    for line in lines:
+        lower_line = line.lower()
+        if lower_line.startswith("part 1"):
+            continue
+        if lower_line in {"word\tipa\tpos\tmeaning", "word ipa pos meaning"}:
+            continue
+        if all(token in lower_line for token in ("word", "ipa", "pos", "meaning")):
+            continue
+        parts = _split_part1_row(line)
+        if parts:
+            word, ipa, pos, meaning = parts
             rows.append({"Word": word, "IPA": ipa, "POS": pos, "Meaning": meaning})
     return rows
 
@@ -1036,7 +1106,7 @@ def parse_lesson_text_to_parts(content: str) -> dict:
     管理端保存时使用 generator.assemble_full_lesson()，各模块以固定 Part 标题开头。
     学生端导出网页版时需要先拆回 parts，才能复用教师端完全相同的 HTML 渲染器。
     """
-    text = (content or "").strip()
+    text = _coerce_html_to_text((content or "").strip())
     if not text:
         return {}
 
