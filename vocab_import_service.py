@@ -43,6 +43,11 @@ _POS_PREFIX_TOKEN_PATTERN = re.compile(
 )
 _POS_ANY_TOKEN_PATTERN = re.compile(rf"&?\s*({_POS_TOKEN_PATTERN})", re.IGNORECASE)
 _POS_SEPARATORS = " \t\r\n.&/\\-:,;，,；;、:："
+_SPACED_POS_FIXES = (
+    (re.compile(r"con\s+j\.", re.IGNORECASE), "conj."),
+    (re.compile(r"ad\s+v\.", re.IGNORECASE), "adv."),
+    (re.compile(r"ad\s+j\.", re.IGNORECASE), "adj."),
+)
 
 
 VOCAB_IMPORT_CHUNK_SIZE = 200
@@ -98,9 +103,16 @@ def _normalize_lemma(text: str) -> str:
     return value
 
 
+def _normalize_pos_spelling(text: str) -> str:
+    normalized = str(text or "").strip()
+    for pattern, replacement in _SPACED_POS_FIXES:
+        normalized = pattern.sub(replacement, normalized)
+    return normalized
+
+
 def _normalize_pos_label(pos_text: str) -> str:
     tokens = []
-    remaining = str(pos_text or "").strip().lower()
+    remaining = _normalize_pos_spelling(pos_text).lower()
     while remaining:
         match = _POS_PREFIX_TOKEN_PATTERN.match(remaining)
         if not match:
@@ -111,7 +123,7 @@ def _normalize_pos_label(pos_text: str) -> str:
             tokens.append(token)
         remaining = remaining[match.end():].lstrip(_POS_SEPARATORS)
     if not tokens:
-        for match in _POS_ANY_TOKEN_PATTERN.finditer(str(pos_text or "").strip().lower()):
+        for match in _POS_ANY_TOKEN_PATTERN.finditer(_normalize_pos_spelling(pos_text).lower()):
             token = _POS_ALIASES.get(match.group(1).lower())
             if token and token not in tokens:
                 tokens.append(token)
@@ -138,7 +150,7 @@ def _normalize_dotted_pos_labels(pos_text: str) -> str:
 
 
 def _strip_pos_prefix(text: str):
-    remaining = str(text or "").strip()
+    remaining = _normalize_pos_spelling(text)
     tokens = []
     while remaining:
         match = _POS_PREFIX_TOKEN_PATTERN.match(remaining)
