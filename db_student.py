@@ -424,12 +424,19 @@ _POS_PREFIX_PATTERN = re.compile(
 )
 _POS_ANY_PATTERN = re.compile(rf"&?\s*({_POS_TOKEN_PATTERN})", re.IGNORECASE)
 _POS_SEPARATORS = " \t\r\n.&/\\-:,;，,；;、:："
+_SPACED_POS_FIXES = (
+    (re.compile(r"con\s+j\.", re.IGNORECASE), "conj."),
+    (re.compile(r"ad\s+v\.", re.IGNORECASE), "adv."),
+    (re.compile(r"ad\s+j\.", re.IGNORECASE), "adj."),
+)
 
 
 def _student_display_meaning(raw_meaning: str) -> str:
     text = str(raw_meaning or "").strip()
     if not text:
         return ""
+    for pattern, replacement in _SPACED_POS_FIXES:
+        text = pattern.sub(replacement, text)
     while text:
         match = _POS_PREFIX_PATTERN.match(text)
         if not match:
