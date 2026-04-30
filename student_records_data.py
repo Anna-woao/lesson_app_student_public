@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from lesson_html_renderer import parse_lesson_text_to_parts, parse_part1_table
+from lesson_html_renderer import (
+    build_lesson_plain_text,
+    parse_lesson_text_to_parts,
+    parse_part1_table,
+)
 from supabase_client import get_admin_supabase_client, get_supabase_client
 
 
@@ -56,7 +60,9 @@ def _fetch_vocab_rows_by_lemmas(supabase, lemmas):
 
 
 def _parse_lesson_vocab_sections(lesson: dict):
-    parts = parse_lesson_text_to_parts(lesson.get("content", "") or "")
+    parts = lesson.get("parts")
+    if not isinstance(parts, dict) or not parts:
+        parts = parse_lesson_text_to_parts(lesson.get("content", "") or "")
     parsed = {
         "new": parse_part1_table(parts.get("part1", "") or ""),
         "review": parse_part1_table(parts.get("part1_review", "") or ""),
@@ -117,6 +123,8 @@ def _build_lesson_vocab_bundle(lesson: dict, supabase):
         "lesson_type": lesson.get("lesson_type", "") or "",
         "topic": lesson.get("topic", "") or "",
         "content": lesson.get("content", "") or "",
+        "normalized_content": lesson.get("normalized_content", "") or "",
+        "parts": lesson.get("parts") or {},
         "created_at": lesson.get("created_at", "") or "",
         "new_words": bundle_rows["new"],
         "review_words": bundle_rows["review"],
@@ -125,14 +133,21 @@ def _build_lesson_vocab_bundle(lesson: dict, supabase):
 
 
 def _build_student_lesson_snapshot(lesson: dict, supabase):
-    vocab_bundle = _build_lesson_vocab_bundle(lesson, supabase)
-    return {
+    parts = parse_lesson_text_to_parts(lesson.get("content", "") or "")
+    normalized_content = build_lesson_plain_text(parts, lesson.get("content", "") or "")
+    snapshot_base = {
         "id": lesson.get("id"),
         "lesson_type": lesson.get("lesson_type", "") or "",
         "difficulty": lesson.get("difficulty", "") or "",
         "topic": lesson.get("topic", "") or "",
         "content": lesson.get("content", "") or "",
+        "normalized_content": normalized_content,
+        "parts": parts,
         "created_at": lesson.get("created_at", "") or "",
+    }
+    vocab_bundle = _build_lesson_vocab_bundle(snapshot_base, supabase)
+    return {
+        **snapshot_base,
         "vocab_bundle": vocab_bundle,
     }
 
