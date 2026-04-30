@@ -308,8 +308,8 @@ def get_student_learned_vocab_summary(student_id: int):
     if ungrouped_words:
         lesson_groups.append({
             "lesson_id": None,
-            "lesson_type": "?????",
-            "topic": "??????????????????????????",
+            "lesson_type": "未关联学案",
+            "topic": "这些词已经进入学习记录，但暂时还没能匹配到具体学案。",
             "created_at": "",
             "word_count": len(ungrouped_words),
             "words": ungrouped_words,
