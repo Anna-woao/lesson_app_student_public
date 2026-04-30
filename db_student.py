@@ -823,6 +823,30 @@ def _build_questions_from_vocab_map(vocab_map, rows, test_mode: str):
     return questions
 
 
+def _normalize_test_mode(mode: str) -> str:
+    normalized = str(mode or "").strip()
+    if normalized == "英译中":
+        return "英译中"
+    if normalized == "中译英":
+        return "中译英"
+    return normalized
+
+
+def _grade_vocab_test_answer(question: dict, user_answer: str) -> tuple[bool, bool]:
+    mode = _normalize_test_mode(question.get("mode"))
+    normalized_answer = str(user_answer or "").strip()
+    is_uncertain = normalized_answer == "我不确定"
+
+    if mode == "英译中":
+        expected_answer = str(question.get("meaning") or "").strip()
+        is_correct = (not is_uncertain) and normalized_answer == expected_answer
+        return is_correct, is_uncertain
+
+    expected_word = str(question.get("word") or "").strip().casefold()
+    is_correct = normalized_answer.casefold() == expected_word
+    return is_correct, is_uncertain
+
+
 def submit_student_test(student_id: int, payload: dict, user_answers: dict, source_label: str):
     results = []
     score = 0
@@ -830,13 +854,9 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
 
     for q in payload["questions"]:
         vocab_item_id = q["vocab_item_id"]
-        mode = q["mode"]
+        mode = _normalize_test_mode(q.get("mode"))
         user_answer = str(user_answers.get(vocab_item_id, "") or "").strip()
-        is_uncertain = user_answer == "我不确定"
-        if mode == "???":
-            is_correct = (not is_uncertain) and user_answer == (q["meaning"] or "").strip()
-        else:
-            is_correct = user_answer.lower() == (q["word"] or "").strip().lower()
+        is_correct, is_uncertain = _grade_vocab_test_answer(q, user_answer)
 
         if is_correct:
             score += 1
