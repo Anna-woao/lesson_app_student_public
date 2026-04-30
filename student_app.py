@@ -14,6 +14,10 @@ from student_diagnosis_service import (
 )
 from lesson_html_renderer import build_downloadable_lesson_html, parse_lesson_text_to_parts
 from student_home_viewmodel import build_student_home_viewmodel
+from student_ui_copy import (
+    build_test_result_summary,
+    format_progress_status_copy,
+)
 
 st.set_page_config(page_title="英语辅导系统｜学生端", layout="wide")
 st.title("英语辅导系统｜学生端")
@@ -238,63 +242,6 @@ def _activate_initial_diagnosis(*, force_refresh: bool = False) -> None:
     st.session_state.pop("student_diagnosis_missing_page", None)
 
 
-def _format_progress_status_copy(status: str):
-    mapping = {
-        "learning": ("正在学习", "这些词刚进入你的学习进度，先把它们认熟、看稳。"),
-        "review": ("进入复习", "这些词已经学过一轮，接下来会按节奏反复巩固。"),
-        "mastered": ("阶段掌握", "这些词当前表现稳定，可以先继续往下推进。"),
-    }
-    return mapping.get(status or "learning", mapping["learning"])
-
-
-def _format_next_review_time(next_review_time: str | None) -> str:
-    if not next_review_time:
-        return "暂未安排下次复习"
-    try:
-        normalized = str(next_review_time).replace("Z", "+00:00")
-        dt = datetime.fromisoformat(normalized)
-        return f"建议复习：{dt.strftime('%m-%d %H:%M')}"
-    except Exception:
-        return f"建议复习：{next_review_time}"
-
-
-def _build_test_result_summary(result: dict):
-    source_type = result.get("source_type")
-    test_type = result.get("test_type")
-    accuracy = float(result.get("accuracy") or 0)
-
-    if source_type == "progress" and test_type == "新词检测":
-        title = "新词摸底已经完成"
-        if accuracy >= 0.8:
-            desc = "这批新词里你已经会了不少，可以把更多精力放到还不稳的词上。"
-        elif accuracy >= 0.5:
-            desc = "你已经有一部分基础，接下来适合把没答稳的词继续推进到学习进度里。"
-        else:
-            desc = "这批词还比较陌生，先按系统安排逐步学习会更稳。"
-        return title, desc
-
-    if source_type == "progress" and test_type == "复习检测":
-        title = "已学词复习已经完成"
-        if accuracy >= 0.8:
-            desc = "你对这批已学词保持得不错，可以继续扩大自己的稳定词汇量。"
-        elif accuracy >= 0.5:
-            desc = "这批词有些已经稳住了，也有一些需要继续回看，系统会同步调整复习节奏。"
-        else:
-            desc = "这批已学词里还有不少需要回炉，先把这些词重新巩固一轮会更合适。"
-        return title, desc
-
-    if source_type == "book":
-        title = "词汇书抽词检测已经完成"
-        if accuracy >= 0.8:
-            desc = "你对当前词汇书的掌握不错，可以继续往后推进新的内容。"
-        elif accuracy >= 0.5:
-            desc = "当前词汇书有一部分已经掌握，接下来继续推进和复习会更有效。"
-        else:
-            desc = "当前词汇书里还有不少词没答稳，先把这一轮基础打牢会更好。"
-        return title, desc
-
-    return "本轮检测已完成", "系统已经根据这次作答更新了你的词汇学习状态。"
-
 
 def _render_test_feedback_blocks(results):
     """
@@ -457,8 +404,19 @@ def _render_vocab_test_intro(payload_exists: bool, result_exists: bool):
 
 
 def _render_vocab_test_result_panel(result: dict):
+    title, desc = build_test_result_summary(result)
     if not result.get("persistence_ok", True):
         st.warning("本次检测分数已算出，但历史记录暂未成功保存。请稍后重试，或联系老师检查数据库配置。")
+    st.markdown(
+        f"""
+        <div class="student-home-card">
+            <div class="student-home-kicker">检测总结</div>
+            <div class="student-home-task-title">{title}</div>
+            <p class="student-home-task-desc">{desc}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.markdown("## 本次检测结果")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -1756,238 +1714,6 @@ def _render_profile_page(home_data: dict):
 def _render_diagnostic_vocab_preview_box():
     return
 
-def _render_initial_diagnosis_legacy(student_id: int):
-    """Deprecated legacy implementation retained only as a no-op placeholder."""
-    return
-
-    _render_section_anchor("initial_diagnosis")
-    st.header("首次诊断")
-    _render_section_focus_badge("initial_diagnosis")
-    definition = get_initial_diagnosis_definition()
-
-    flash_result = st.session_state.pop("student_diagnosis_flash", None)
-    if flash_result:
-        _render_diagnosis_result(flash_result)
-
-    saved_result = _build_saved_diagnosis_result(student_id)
-    if saved_result and not st.session_state.get("student_diagnosis_active", False):
-        st.info("你已经完成过一次首次诊断，下面展示的是当前保存的诊断结果。")
-        _render_diagnosis_result(saved_result)
-        if st.button("重新做一次首次诊断", key="restart_initial_diagnosis"):
-            st.session_state["student_diagnosis_active"] = True
-            st.session_state["student_diagnosis_step"] = 0
-            st.session_state["student_diagnosis_answers"] = {}
-            st.rerun()
-        return
-
-    if not st.session_state.get("student_diagnosis_active", False):
-        st.markdown(
-            """
-            <div class="student-home-card">
-                <div class="student-home-kicker">诊断说明</div>
-                <div class="student-home-task-title">先用一轮 10-15 分钟的轻量诊断，帮你找到更合适的学习起点</div>
-                <p class="student-home-subtitle">
-                    这次会看四个模块：词汇、阅读、语法基础、写作基础。
-                    诊断结束后，系统会生成你的初始画像，并把首页任务切到更适合你的学习轨道。
-                </p>
-                <p class="student-home-task-desc">
-                    当前阶段先重视“看清起点”，不追求一次测得很全；后面会随着训练继续更新。
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        _render_diagnosis_module_overview(definition)
-        intro_col1, intro_col2, intro_col3 = st.columns(3)
-        with intro_col1:
-            st.metric("诊断模块", len(definition))
-        with intro_col2:
-            st.metric("总题数", sum(len(module.get("questions", [])) for module in definition))
-        with intro_col3:
-            st.metric("预计时长", f"{sum(module.get('estimated_minutes', 3) for module in definition)} 分钟")
-
-        _render_diagnostic_vocab_preview_box()
-
-        st.info("建议一次完成，中途也可以暂停；重新进入后会从头开始这一轮诊断。")
-        if st.button("开始首次诊断", key="start_initial_diagnosis", type="primary"):
-            st.session_state["student_diagnosis_active"] = True
-            st.session_state["student_diagnosis_step"] = 0
-            st.session_state["student_diagnosis_answers"] = {}
-            st.rerun()
-        return
-
-    step = st.session_state.get("student_diagnosis_step", 0)
-    answers_by_module = st.session_state.setdefault("student_diagnosis_answers", {})
-    module = definition[step]
-
-    _render_diagnosis_module_overview(definition, active_step=step)
-    st.progress((step + 1) / len(definition))
-    st.subheader(f"{step + 1}. {module['title']}")
-    st.write(module["intro"])
-    focus_points = module.get("focus_points") or []
-    if focus_points:
-        st.markdown(
-            f"""
-            <div class="student-home-card">
-                <div class="student-home-kicker">本模块关注点</div>
-                <div class="student-home-task-title">{module.get("short_title", module["title"])}</div>
-                <p class="student-home-task-desc">{' / '.join(focus_points)}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    if module.get("passage"):
-        st.markdown(
-            f"""
-            <div style="padding: 14px 16px; border-radius: 10px; background: #f6fbff; border: 1px solid #d9e6f2; margin-bottom: 12px;">
-                {module["passage"]}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    default_answers = answers_by_module.get(module["key"], {})
-    with st.form(f"initial_diagnosis_form_{module['key']}"):
-        current_answers = {}
-        for question in module["questions"]:
-            default_value = default_answers.get(question["id"])
-            current_answers[question["id"]] = st.radio(
-                question["prompt"],
-                question["options"],
-                index=question["options"].index(default_value) if default_value in question["options"] else None,
-                key=f"diagnosis_{module['key']}_{question['id']}",
-            )
-
-        button_cols = st.columns(3)
-        with button_cols[0]:
-            go_previous = st.form_submit_button("上一部分", disabled=step == 0, use_container_width=True)
-        with button_cols[1]:
-            button_label = "完成诊断" if step == len(definition) - 1 else "进入下一部分"
-            submitted = st.form_submit_button(button_label, type="primary", use_container_width=True)
-        with button_cols[2]:
-            pause = st.form_submit_button("暂停本轮诊断", use_container_width=True)
-
-    if go_previous:
-        answers_by_module[module["key"]] = {
-            question_id: answer
-            for question_id, answer in current_answers.items()
-            if answer
-        }
-        st.session_state["student_diagnosis_answers"] = answers_by_module
-        st.session_state["student_diagnosis_step"] = max(step - 1, 0)
-        st.rerun()
-
-    if pause:
-        _clear_diagnosis_session_state()
-        st.rerun()
-
-    if submitted:
-        unanswered = [question["prompt"] for question in module["questions"] if not current_answers.get(question["id"])]
-        if unanswered:
-            st.warning(f"这一部分还有 {len(unanswered)} 道题未作答，请完成后再继续。")
-            return
-
-        answers_by_module[module["key"]] = current_answers
-        st.session_state["student_diagnosis_answers"] = answers_by_module
-
-        if step < len(definition) - 1:
-            st.session_state["student_diagnosis_step"] = step + 1
-            st.rerun()
-
-        result = evaluate_initial_diagnosis(answers_by_module)
-        try:
-            dbs.save_initial_diagnosis_result(student_id, result)
-        except Exception as e:
-            st.error("诊断结果保存失败，请联系管理员检查 Supabase 配置。")
-            st.exception(e)
-            return
-
-        _clear_diagnosis_session_state()
-        st.session_state["student_diagnosis_flash"] = result
-        st.rerun()
-    return
-
-    flash_result = st.session_state.pop("student_diagnosis_flash", None)
-    if flash_result:
-        _render_diagnosis_result(flash_result)
-
-    latest_record = dbs.get_latest_diagnosis_record(student_id)
-    if latest_record and not st.session_state.get("student_diagnosis_active", False):
-        st.info("你已经完成过首次诊断，下面是当前保存的诊断结果。")
-        _render_diagnosis_result(latest_record)
-        if st.button("重新做一次首次诊断", key="restart_initial_diagnosis"):
-            st.session_state["student_diagnosis_active"] = True
-            st.session_state["student_diagnosis_step"] = 0
-            st.session_state["student_diagnosis_answers"] = {}
-            st.rerun()
-        return
-
-    if not st.session_state.get("student_diagnosis_active", False):
-        st.info("这是一轮轻量诊断，会帮助系统判断你当前更适合从哪里开始。")
-        if st.button("开始首次诊断", key="start_initial_diagnosis", type="primary"):
-            st.session_state["student_diagnosis_active"] = True
-            st.session_state["student_diagnosis_step"] = 0
-            st.session_state["student_diagnosis_answers"] = {}
-            st.rerun()
-        return
-
-    definition = get_initial_diagnosis_definition()
-    step = st.session_state.get("student_diagnosis_step", 0)
-    answers_by_module = st.session_state.setdefault("student_diagnosis_answers", {})
-    module = definition[step]
-
-    st.progress((step + 1) / len(definition))
-    st.subheader(f"{step + 1}. {module['title']}")
-    st.write(module["intro"])
-    if module.get("passage"):
-        st.markdown(
-            f"""
-            <div style="padding: 14px 16px; border-radius: 10px; background: #f6fbff; border: 1px solid #d9e6f2; margin-bottom: 12px;">
-                {module["passage"]}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    default_answers = answers_by_module.get(module["key"], {})
-    with st.form(f"initial_diagnosis_form_{module['key']}"):
-        current_answers = {}
-        for question in module["questions"]:
-            current_answers[question["id"]] = st.radio(
-                question["prompt"],
-                question["options"],
-                index=question["options"].index(default_answers[question["id"]])
-                if question["id"] in default_answers and default_answers[question["id"]] in question["options"]
-                else 0,
-                key=f"diagnosis_{module['key']}_{question['id']}",
-            )
-
-        button_label = "完成诊断" if step == len(definition) - 1 else "进入下一部分"
-        submitted = st.form_submit_button(button_label)
-
-    if submitted:
-        answers_by_module[module["key"]] = current_answers
-        st.session_state["student_diagnosis_answers"] = answers_by_module
-
-        if step < len(definition) - 1:
-            st.session_state["student_diagnosis_step"] = step + 1
-            st.rerun()
-
-        result = evaluate_initial_diagnosis(answers_by_module)
-        try:
-            dbs.save_initial_diagnosis_result(student_id, result)
-        except Exception as e:
-            st.error("诊断结果保存失败，请联系管理员检查 Supabase 配置。")
-            st.exception(e)
-            return
-
-        _clear_diagnosis_session_state()
-        st.session_state["student_diagnosis_flash"] = result
-        st.rerun()
-
-    if st.button("先暂停这轮诊断", key="pause_initial_diagnosis"):
-        _clear_diagnosis_session_state()
-        st.rerun()
 
 def _sanitize_filename_part(text: str) -> str:
     if not text:
@@ -2061,7 +1787,7 @@ def _render_lesson_content(detail):
 
 def _render_lesson_vocab_rows(rows):
     if not rows:
-        st.info("这份学案暂时没有记录新词。")
+        st.info("这份学案暂时没有可展示的词汇记录。")
         return
 
     for idx, item in enumerate(rows, start=1):
@@ -2102,9 +1828,21 @@ def _show_lesson_detail_dialog(student_id: int, lesson_id: int):
 
 @st.dialog("本次学案新词表")
 def _show_lesson_vocab_dialog(student_id: int, lesson_id: int):
-    rows = dbs.get_lesson_new_vocab_for_student(student_id, lesson_id)
-    st.write(f"新词数量：{len(rows)}")
-    _render_lesson_vocab_rows(rows)
+    bundle = dbs.get_lesson_vocab_bundle_for_student(student_id, lesson_id)
+    if not bundle:
+        st.warning("没有找到这份学案，或这份学案不属于当前学生。")
+        return
+
+    new_rows = bundle.get("new_words", [])
+    review_rows = bundle.get("review_words", [])
+    st.write(f"新词数量：{len(new_rows)}")
+    st.write(f"复习词数量：{len(review_rows)}")
+
+    new_tab, review_tab = st.tabs(["本次新词", "本次复习词"])
+    with new_tab:
+        _render_lesson_vocab_rows(new_rows)
+    with review_tab:
+        _render_lesson_vocab_rows(review_rows)
 
 
 def _render_learned_word_groups(groups):
@@ -2118,7 +1856,8 @@ def _render_learned_word_groups(groups):
         topic = group.get("topic", "") or "未标注主题"
         lesson_id = group.get("lesson_id")
         word_count = group.get("word_count", 0)
-        title = f"{created_at}｜学案 {lesson_id}｜{lesson_type}｜{topic}（{word_count}词）"
+        lesson_label = "未关联学案" if lesson_id is None else f"学案 {lesson_id}"
+        title = f"{created_at or '暂无记录'}｜{lesson_label}｜{lesson_type}｜{topic}（{word_count}词）"
 
         with st.expander(title, expanded=False):
             for idx, word in enumerate(group.get("words", []), start=1):
@@ -2233,12 +1972,13 @@ def _render_learned_words(student_id: int):
     preview_groups = lesson_groups[:3]
     for group in preview_groups:
         lesson_label = group.get("topic", "") or group.get("lesson_type", "") or "未命名学案"
+        mix_label = f"新词 {group.get('new_word_count', 0)} ｜ 复习词 {group.get('review_word_count', 0)}"
         st.markdown(
             f"""
             <div class="student-home-card">
                 <div class="student-home-kicker">关联学案</div>
                 <div class="student-home-task-title">{lesson_label}</div>
-                <p class="student-home-subtitle">词汇数量：{group.get("word_count", 0)}</p>
+                <p class="student-home-subtitle">词汇数量：{group.get("word_count", 0)} ｜ {mix_label}</p>
                 <p class="student-home-task-desc">创建时间：{group.get("created_at", "") or '暂无记录'}</p>
             </div>
             """,
@@ -2282,6 +2022,21 @@ def _render_progress(student_id: int):
         st.metric("累计已学词汇", total_learned)
     with overview_col3:
         st.metric("待复习词汇", total_review)
+
+    status_columns = st.columns(3)
+    for column, status_key in zip(status_columns, ["learning", "review", "mastered"]):
+        status_title, status_desc = format_progress_status_copy(status_key)
+        with column:
+            st.markdown(
+                f"""
+                <div class="student-home-card">
+                    <div class="student-home-kicker">状态说明</div>
+                    <div class="student-home-task-title">{status_title}</div>
+                    <p class="student-home-task-desc">{status_desc}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     st.markdown("## 词汇书进度")
     for row in progress_rows:
