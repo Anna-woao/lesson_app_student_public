@@ -12,7 +12,7 @@ from student_diagnosis_service import (
     build_initial_diagnosis_definition,
     evaluate_initial_diagnosis,
 )
-from lesson_html_renderer import build_downloadable_lesson_html, parse_lesson_text_to_parts
+from lesson_html_renderer import build_downloadable_lesson_html, build_lesson_plain_text
 from student_home_viewmodel import build_student_home_viewmodel
 from student_ui_copy import (
     build_test_result_summary,
@@ -318,7 +318,7 @@ def _build_lesson_html_filename(student: dict, lesson: dict) -> str:
 
 
 def _build_lesson_download_html(lesson: dict) -> str:
-    parts = parse_lesson_text_to_parts(lesson.get("content", ""))
+    parts = lesson.get("parts") or {}
     title_bits = [str(lesson.get("lesson_type") or "英语学案"), str(lesson.get("topic") or "")]
     title = " - ".join([bit for bit in title_bits if bit])
     student = st.session_state.get("student_login", {}) or {}
@@ -332,18 +332,15 @@ def _build_lesson_download_html(lesson: dict) -> str:
     return build_downloadable_lesson_html(parts, title=title or "英语学案", lesson_meta=lesson_meta)
 
 
-def _looks_like_html(content: str) -> bool:
-    lowered = (content or "").lower()
-    return "<html" in lowered or "<body" in lowered or "<!doctype" in lowered
-
-
 def _render_lesson_content(detail: dict):
-    content = detail.get("content", "") or ""
-    if not content:
+    raw_content = detail.get("content", "") or ""
+    parts = detail.get("parts") or {}
+    plain_text = detail.get("normalized_content") or build_lesson_plain_text(parts, raw_content)
+    if not raw_content and not plain_text:
         st.info("这份学案暂时没有内容。")
         return
 
-    html_doc = content if _looks_like_html(content) else _build_lesson_download_html(detail)
+    html_doc = _build_lesson_download_html(detail)
     st.download_button(
         "下载网页 HTML（可用浏览器打印 PDF）",
         data=html_doc,
@@ -354,14 +351,11 @@ def _render_lesson_content(detail: dict):
 
     preview_tab, text_tab = st.tabs(["网页预览", "纯文本内容"])
     with preview_tab:
-        if _looks_like_html(content):
-            components.html(content, height=650, scrolling=True)
-        else:
-            components.html(html_doc, height=650, scrolling=True)
+        components.html(html_doc, height=650, scrolling=True)
     with text_tab:
         st.text_area(
             "完整学案内容",
-            value=content,
+            value=plain_text,
             height=650,
             key=f"lesson_content_{detail.get('id')}",
         )
@@ -783,295 +777,6 @@ def main():
         _render_home_page(home_data)
     st.markdown("</div>", unsafe_allow_html=True)
 
-
-def _render_initial_diagnosis(student_id: int):
-    _render_section_anchor("initial_diagnosis")
-    st.header("首次诊断")
-    _render_section_focus_badge("initial_diagnosis")
-
-    flash_result = st.session_state.pop("student_diagnosis_flash", None)
-    if flash_result:
-        _render_diagnosis_result(flash_result)
-
-    saved_result = _build_saved_diagnosis_result(student_id)
-    if saved_result and not st.session_state.get("student_diagnosis_active", False):
-        st.info("你已经完成过一次首次诊断，下面展示的是当前保存的诊断结果。")
-        _render_diagnosis_result(saved_result)
-        if st.button("重新做一次首次诊断", key="restart_initial_diagnosis"):
-            try:
-                _activate_initial_diagnosis(force_refresh=True)
-            except Exception as exc:
-                st.error(f"正式诊断题库重新加载失败：{exc}")
-                return
-            st.rerun()
-        return
-
-    if not st.session_state.get("student_diagnosis_active", False):
-        bank_status = _render_diagnostic_vocab_bank_status()
-        overview_definition = None
-        if bank_status.get("ready_for_diagnosis"):
-            try:
-                overview_definition = _prepare_initial_diagnosis_definition(force_refresh=True)
-            except Exception as exc:
-                st.error(f"正式诊断定义加载失败：{exc}")
-
-        st.markdown(
-            """
-            <div class="student-home-card">
-                <div class="student-home-kicker">诊断说明</div>
-                <div class="student-home-task-title">先用一轮 10-15 分钟的轻量诊断，帮你找到更合适的学习起点</div>
-                <p class="student-home-subtitle">
-                    这次会看四个模块：词汇、阅读、语法基础、写作基础。
-                    诊断结束后，系统会生成你的初始画像，并把首页任务切到更适合你的学习轨道。
-                </p>
-                <p class="student-home-task-desc">
-                    当前阶段先重视“看清起点”，不追求一次测得很全；后面会随着训练继续更新。
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if overview_definition:
-            _render_diagnosis_module_overview(overview_definition)
-        intro_col1, intro_col2, intro_col3 = st.columns(3)
-        with intro_col1:
-            st.metric("诊断模块", len(overview_definition or []))
-        with intro_col2:
-            st.metric("总题数", sum(len(module.get("questions", [])) for module in (overview_definition or [])))
-        with intro_col3:
-            st.metric("预计时长", f"{sum(module.get('estimated_minutes', 3) for module in (overview_definition or []))} 分钟")
-
-        _render_diagnostic_vocab_preview_box()
-
-        st.info("建议一次完成，中途也可以暂停；重新进入后会从头开始这一轮诊断。")
-        if st.button("开始首次诊断", key="start_initial_diagnosis", type="primary"):
-            if not bank_status.get("ready_for_diagnosis"):
-                st.error("正式词汇诊断题库还没有准备好，当前不能开始首次诊断。请先确认 Supabase 中已有 diagnostic_vocab_items 数据。")
-                return
-            try:
-                _activate_initial_diagnosis(force_refresh=True)
-            except Exception as exc:
-                st.error(f"首次诊断无法启动：{exc}")
-                return
-            st.rerun()
-        return
-
-    definition = st.session_state.get("student_diagnosis_definition")
-    if not definition:
-        try:
-            definition = _prepare_initial_diagnosis_definition(force_refresh=True)
-        except Exception as exc:
-            st.error(f"首次诊断题库加载失败，无法继续：{exc}")
-            _clear_diagnosis_session_state()
-            return
-
-    step = st.session_state.get("student_diagnosis_step", 0)
-    answers_by_module = st.session_state.setdefault("student_diagnosis_answers", {})
-    module = definition[step]
-    module_started_at_map = st.session_state.setdefault("student_diagnosis_module_started_at_map", {})
-    if module["key"] not in module_started_at_map:
-        module_started_at_map[module["key"]] = datetime.utcnow().isoformat()
-    st.session_state["student_diagnosis_module_started_at"] = module_started_at_map[module["key"]]
-
-    _render_diagnosis_module_overview(definition, active_step=step)
-    st.progress((step + 1) / len(definition))
-    st.subheader(f"{step + 1}. {module['title']}")
-    st.write(module["intro"])
-    focus_points = module.get("focus_points") or []
-    if focus_points:
-        st.markdown(
-            f"""
-            <div class="student-home-card">
-                <div class="student-home-kicker">本模块关注点</div>
-                <div class="student-home-task-title">{module.get("short_title", module["title"])}</div>
-                <p class="student-home-task-desc">{' / '.join(focus_points)}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    if module.get("question_count_summary"):
-        st.caption(module.get("question_count_summary"))
-    if module.get("passage"):
-        st.markdown(
-            f"""
-            <div style="padding: 14px 16px; border-radius: 10px; background: #f6fbff; border: 1px solid #d9e6f2; margin-bottom: 12px;">
-                {module["passage"]}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    default_answers = answers_by_module.get(module["key"], {})
-    is_vocab_module = module["key"] == "vocab"
-    module_questions = module["questions"]
-    vocab_page = 0
-    total_vocab_pages = 1
-    page_questions = module_questions
-    page_start_index = 0
-    if is_vocab_module:
-        total_vocab_pages = max(1, (len(module_questions) + VOCAB_DIAG_PAGE_SIZE - 1) // VOCAB_DIAG_PAGE_SIZE)
-        vocab_page = int(st.session_state.get("student_diagnosis_vocab_page", 0) or 0)
-        vocab_page = max(0, min(vocab_page, total_vocab_pages - 1))
-        st.session_state["student_diagnosis_vocab_page"] = vocab_page
-        page_start_index = vocab_page * VOCAB_DIAG_PAGE_SIZE
-        page_questions = module_questions[page_start_index: page_start_index + VOCAB_DIAG_PAGE_SIZE]
-        st.markdown(
-            f"""
-            <div class="student-diagnosis-page-summary">
-                <div class="student-diagnosis-page-title">{_build_vocab_page_title(page_questions)}</div>
-                <div class="student-diagnosis-page-meta">
-                    第 {vocab_page + 1} / {total_vocab_pages} 页 · 本页 {len(page_questions)} 题 · {_build_vocab_page_meta(page_questions)}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        missing_ids = st.session_state.get("student_diagnosis_missing_question_ids", []) or []
-        missing_page = st.session_state.get("student_diagnosis_missing_page")
-        if missing_ids and missing_page == vocab_page:
-            question_number_map = {
-                question["id"]: page_start_index + index + 1
-                for index, question in enumerate(page_questions)
-            }
-            missing_links = "".join(
-                f'<a href="#{_build_question_anchor_id(question_id)}">定位到第 {question_number_map.get(question_id, "?")} 题</a>'
-                for question_id in missing_ids
-            )
-            st.markdown(
-                f"""
-                <div class="student-diagnosis-missing-box">
-                    <div class="student-diagnosis-missing-title">这一页还有题没做完</div>
-                    <div class="student-home-task-desc">请先完成下面这些题，再继续下一页。</div>
-                    <div class="student-diagnosis-missing-links">{missing_links}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            first_missing_id = _build_question_anchor_id(missing_ids[0])
-            components.html(
-                f"""
-                <script>
-                const target = parent.document.getElementById("{first_missing_id}");
-                if (target) {{
-                    target.scrollIntoView({{behavior: "smooth", block: "center"}});
-                }}
-                </script>
-                """,
-                height=0,
-            )
-
-    with st.form(f"initial_diagnosis_form_{module['key']}"):
-        current_answers = {}
-        for question_index, question in enumerate(page_questions, start=page_start_index + 1):
-            default_value = default_answers.get(question["id"])
-            if is_vocab_module:
-                _render_vocab_question_card(question, question_index)
-            current_answers[question["id"]] = st.radio(
-                "请选择答案",
-                question["options"],
-                index=question["options"].index(default_value) if default_value in question["options"] else None,
-                key=f"diagnosis_{module['key']}_{question['id']}",
-                label_visibility="collapsed" if is_vocab_module else "visible",
-            )
-
-        button_cols = st.columns(4 if is_vocab_module else 3)
-        with button_cols[0]:
-            previous_label = "上一页" if is_vocab_module and vocab_page > 0 else "上一部分"
-            previous_disabled = (is_vocab_module and vocab_page == 0 and step == 0) or (not is_vocab_module and step == 0)
-            go_previous = st.form_submit_button(previous_label, disabled=previous_disabled, use_container_width=True)
-        with button_cols[1]:
-            if is_vocab_module and vocab_page < total_vocab_pages - 1:
-                button_label = "下一页"
-            else:
-                button_label = "完成诊断" if step == len(definition) - 1 else "进入下一部分"
-            submitted = st.form_submit_button(button_label, type="primary", use_container_width=True)
-        if is_vocab_module:
-            with button_cols[2]:
-                st.markdown(
-                    f"""
-                    <div style="padding-top: 10px; color: #486581; font-size: 14px;">
-                        已完成 {vocab_page + 1} / {total_vocab_pages} 页
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-        with button_cols[3 if is_vocab_module else 2]:
-            pause = st.form_submit_button("暂停本轮诊断", use_container_width=True)
-
-    if go_previous:
-        st.session_state.pop("student_diagnosis_missing_question_ids", None)
-        st.session_state.pop("student_diagnosis_missing_page", None)
-        answers_by_module[module["key"]] = {
-            question_id: answer
-            for question_id, answer in {**default_answers, **current_answers}.items()
-            if answer
-        }
-        st.session_state["student_diagnosis_answers"] = answers_by_module
-        if is_vocab_module and vocab_page > 0:
-            st.session_state["student_diagnosis_vocab_page"] = vocab_page - 1
-        else:
-            st.session_state["student_diagnosis_step"] = max(step - 1, 0)
-            if is_vocab_module:
-                st.session_state["student_diagnosis_vocab_page"] = 0
-            elif step > 0 and definition[step - 1]["key"] == "vocab":
-                previous_vocab_pages = max(1, (len(definition[step - 1]["questions"]) + VOCAB_DIAG_PAGE_SIZE - 1) // VOCAB_DIAG_PAGE_SIZE)
-                st.session_state["student_diagnosis_vocab_page"] = previous_vocab_pages - 1
-        st.rerun()
-
-    if pause:
-        _clear_diagnosis_session_state()
-        st.rerun()
-
-    if submitted:
-        unanswered = [question["prompt"] for question in page_questions if not current_answers.get(question["id"])]
-        if unanswered:
-            st.session_state["student_diagnosis_missing_question_ids"] = [
-                question["id"] for question in page_questions if not current_answers.get(question["id"])
-            ]
-            st.session_state["student_diagnosis_missing_page"] = vocab_page if is_vocab_module else None
-            st.rerun()
-
-        st.session_state.pop("student_diagnosis_missing_question_ids", None)
-        st.session_state.pop("student_diagnosis_missing_page", None)
-        answers_by_module[module["key"]] = {
-            **default_answers,
-            **current_answers,
-        }
-        st.session_state["student_diagnosis_answers"] = answers_by_module
-
-        if is_vocab_module and vocab_page < total_vocab_pages - 1:
-            st.session_state["student_diagnosis_vocab_page"] = vocab_page + 1
-            st.rerun()
-
-        if step < len(definition) - 1:
-            st.session_state["student_diagnosis_step"] = step + 1
-            if is_vocab_module:
-                st.session_state["student_diagnosis_vocab_page"] = 0
-            next_module = definition[step + 1]
-            module_started_at_map = st.session_state.setdefault("student_diagnosis_module_started_at_map", {})
-            module_started_at_map.setdefault(next_module["key"], datetime.utcnow().isoformat())
-            st.rerun()
-
-        result = evaluate_initial_diagnosis(answers_by_module, definition=definition)
-        try:
-            dbs.save_initial_diagnosis_result(
-                student_id,
-                result,
-                module_answers=answers_by_module,
-                definition=definition,
-                diagnostic_meta={
-                    "started_at": st.session_state.get("student_diagnosis_started_at"),
-                    "submitted_at": datetime.utcnow().isoformat(),
-                    "module_started_at_map": st.session_state.get("student_diagnosis_module_started_at_map", {}),
-                },
-            )
-        except Exception as exc:
-            st.error("诊断结果保存失败，请联系管理员检查 Supabase 配置。")
-            return
-
-        _clear_diagnosis_session_state()
-        st.session_state["student_diagnosis_flash"] = result
-        st.rerun()
 
 if __name__ == "__main__":
     main()
