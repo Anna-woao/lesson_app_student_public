@@ -18,6 +18,11 @@ from student_ui_copy import (
     build_test_result_summary,
     format_progress_status_copy,
 )
+from student_initial_diagnosis_view import (
+    activate_initial_diagnosis as _activate_initial_diagnosis_view,
+    render_initial_diagnosis as _render_initial_diagnosis_view,
+)
+from student_vocab_test_view import render_vocab_test as _render_vocab_test_view
 
 st.set_page_config(page_title="英语辅导系统｜学生端", layout="wide")
 st.title("英语辅导系统｜学生端")
@@ -227,1492 +232,70 @@ def _run_task_action(student_id: int, task_card: dict) -> bool:
 
 
 def _activate_initial_diagnosis(*, force_refresh: bool = False) -> None:
-    _clear_diagnosis_session_state()
-    definition = _prepare_initial_diagnosis_definition(force_refresh=force_refresh)
-    started_at = datetime.utcnow().isoformat()
-    st.session_state["student_diagnosis_definition"] = definition
-    st.session_state["student_diagnosis_active"] = True
-    st.session_state["student_diagnosis_step"] = 0
-    st.session_state["student_diagnosis_answers"] = {}
-    st.session_state["student_diagnosis_started_at"] = started_at
-    st.session_state["student_diagnosis_module_started_at"] = started_at
-    st.session_state["student_diagnosis_module_started_at_map"] = {}
-    st.session_state["student_diagnosis_vocab_page"] = 0
-    st.session_state.pop("student_diagnosis_missing_question_ids", None)
-    st.session_state.pop("student_diagnosis_missing_page", None)
+    _activate_initial_diagnosis_view(force_refresh=force_refresh)
 
 
 
-def _render_test_feedback_blocks(results):
-    """
-    用更清楚的两个区块展示本次检测反馈。
-    """
-    if not results:
-        st.info("当前没有可展示的检测反馈。")
-        return
 
-    total_count = len(results)
-    correct_results = [item for item in results if item.get("is_correct")]
-    wrong_results = [item for item in results if not item.get("is_correct")]
-    uncertain_results = [item for item in results if item.get("is_uncertain")]
-    st.markdown(
-        (
-            '<div class="vocab-feedback-overview">'
-            f'<div class="vocab-feedback-overview-item"><span class="label">本次题数</span><span class="value">{total_count}</span></div>'
-            f'<div class="vocab-feedback-overview-item"><span class="label">答对</span><span class="value correct">{len(correct_results)}</span></div>'
-            f'<div class="vocab-feedback-overview-item"><span class="label">答错</span><span class="value wrong">{len(wrong_results)}</span></div>'
-            f'<div class="vocab-feedback-overview-item"><span class="label">不确定</span><span class="value pending">{len(uncertain_results)}</span></div>'
-            '</div>'
-        ),
-        unsafe_allow_html=True,
-    )
-
-    word_chips = "".join(
-        f'<span class="vocab-feedback-chip">{idx}. {escape(str(item.get("word", "") or "未命名单词"))}</span>'
-        for idx, item in enumerate(results, start=1)
-    )
-    with st.expander(f"查看本次考察单词（{total_count}）", expanded=False):
-        st.markdown(f'<div class="vocab-feedback-chip-wrap">{word_chips}</div>', unsafe_allow_html=True)
-
-    wrong_tab, correct_tab = st.tabs(
-        [f"需要订正（{len(wrong_results)}）", f"已答对（{len(correct_results)}）"]
-    )
-    with wrong_tab:
-        _render_vocab_feedback_grid(
-            wrong_results,
-            empty_message="这一轮没有错词，表现很稳。",
-            card_tone="wrong",
-        )
-    with correct_tab:
-        _render_vocab_feedback_grid(
-            correct_results,
-            empty_message="这一轮暂时还没有答对的词，先把错词订正完就好。",
-            card_tone="correct",
-        )
-
-
-def _clean_feedback_text(value, fallback: str = "（未作答）") -> str:
-    text = str(value or "").strip()
-    if not text:
-        return fallback
-    text = unescape(text.replace("&nbsp;", " "))
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text or fallback
-
-
-def _get_correct_answer_text(item: dict) -> str:
-    mode = str(item.get("mode") or "").strip()
-    if mode == "英译中":
-        return _clean_feedback_text(item.get("meaning"), fallback="（暂无答案）")
-    return _clean_feedback_text(item.get("word"), fallback="（暂无答案）")
-
-
-def _render_vocab_feedback_grid(results, empty_message: str, card_tone: str):
-    if not results:
-        st.info(empty_message)
-        return
-
-    cards_html = []
-    for idx, item in enumerate(results, start=1):
-        word = escape(_clean_feedback_text(item.get("word"), fallback="未命名单词"))
-        mode = escape(str(item.get("mode") or ""))
-        user_answer = escape(_clean_feedback_text(item.get("user_answer")))
-        correct_answer = escape(_get_correct_answer_text(item))
-        tone_label = "暂不确定" if item.get("is_uncertain") else ("需要订正" if card_tone == "wrong" else "回答正确")
-        cards_html.append(
-            (
-                f'<div class="vocab-feedback-card vocab-feedback-card--{card_tone}">'
-                '<div class="vocab-feedback-card-top">'
-                '<div>'
-                f'<div class="vocab-feedback-card-title">{idx}. {word}</div>'
-                f'<div class="vocab-feedback-card-mode">{mode}</div>'
-                '</div>'
-                f'<span class="vocab-feedback-card-pill vocab-feedback-card-pill--{card_tone}">{tone_label}</span>'
-                '</div>'
-                '<div class="vocab-feedback-answer-row">'
-                '<span class="vocab-feedback-answer-label">学生答案</span>'
-                f'<span class="vocab-feedback-answer-value">{user_answer}</span>'
-                '</div>'
-                '<div class="vocab-feedback-answer-row">'
-                '<span class="vocab-feedback-answer-label">正确答案</span>'
-                f'<span class="vocab-feedback-answer-value">{correct_answer}</span>'
-                '</div>'
-                '</div>'
-            )
-        )
-
-    st.markdown(
-        f'<div class="vocab-feedback-grid">{"".join(cards_html)}</div>',
-        unsafe_allow_html=True,
+def _render_vocab_test(student_id: int):
+    _render_vocab_test_view(
+        student_id,
+        render_section_anchor=_render_section_anchor,
+        render_section_focus_badge=_render_section_focus_badge,
     )
 
 
-def _build_vocab_test_prompt(question: dict) -> str:
-    if question.get("mode") == "英译中":
-        word = escape(_clean_feedback_text(question.get("word"), fallback="未命名单词"))
-        return f'请选择 <strong>{word}</strong> 的中文意思'
-    meaning = escape(_clean_feedback_text(question.get("meaning"), fallback="暂无提示"))
-    return f'请根据中文意思写出英文：<strong>{meaning}</strong>'
-
-
-def _count_answered_vocab_questions(questions) -> int:
-    answered = 0
-    for question in questions:
-        key_prefix = "student_mcq_" if question.get("mode") == "英译中" else "student_text_"
-        state_value = st.session_state.get(f"{key_prefix}{question['vocab_item_id']}")
-        if str(state_value or "").strip():
-            answered += 1
-    return answered
-
-
-def _render_vocab_test_intro(payload_exists: bool, result_exists: bool):
-    if payload_exists:
-        st.markdown(
-            """
-            <div class="student-home-card">
-                <div class="student-home-kicker">进行中</div>
-                <div class="student-home-task-title">这一轮词汇检测还没完成</div>
-                <p class="student-home-task-desc">先把当前题目做完，再开始下一轮，会更容易看清今天真正需要巩固的词。</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        return
-    if result_exists:
-        st.markdown(
-            """
-            <div class="student-home-card">
-                <div class="student-home-kicker">结果已保留</div>
-                <div class="student-home-task-title">你刚完成的这轮检测还在这里</div>
-                <p class="student-home-task-desc">先回看结果也可以，准备好了再开始下一轮。</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        return
-    st.markdown(
-        """
-        <div class="student-home-card">
-            <div class="student-home-kicker">Vocabulary Check</div>
-            <div class="student-home-task-title">先选一种检测方式，再直接完成这一轮</div>
-            <p class="student-home-task-desc">这里不放杂项入口，只负责开始检测、完成答题、回看结果。</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+def _render_initial_diagnosis(student_id: int):
+    _render_initial_diagnosis_view(
+        student_id,
+        render_section_anchor=_render_section_anchor,
+        render_section_focus_badge=_render_section_focus_badge,
     )
 
+def _render_home_page(home_data: dict):
+    _set_current_page("home")
+    _render_welcome_section(home_data)
 
-def _render_vocab_test_result_panel(result: dict):
-    title, desc = build_test_result_summary(result)
-    if not result.get("persistence_ok", True):
-        st.warning("本次检测分数已算出，但历史记录暂未成功保存。请稍后重试，或联系老师检查数据库配置。")
+    top_left, top_right = st.columns([1.2, 1])
+    with top_left:
+        _render_primary_task_section(home_data)
+    with top_right:
+        st.markdown("## 轻状态")
+        _render_light_status_section(home_data)
+
+    st.markdown("## 今日学习提醒")
     st.markdown(
         f"""
         <div class="student-home-card">
-            <div class="student-home-kicker">检测总结</div>
-            <div class="student-home-task-title">{title}</div>
-            <p class="student-home-task-desc">{desc}</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown("## 本次检测结果")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("得分", f"{result['score']} / {result['total']}")
-    with col2:
-        st.metric("正确率", f"{result['accuracy']:.0%}")
-    with col3:
-        if st.button("开始新一轮检测", key="restart_vocab_test_from_result", use_container_width=True):
-            st.session_state.pop("student_test_result", None)
-            st.rerun()
-    _render_test_feedback_blocks(result.get("results", []))
-
-
-def _render_progress_test_launcher(student_id: int):
-    st.markdown("### 学习进度检测")
-    st.caption("适合处理当前学习中或待复习的词汇，直接进入一轮轻量检测。")
-
-    test_type = st.selectbox("检测类型", ["新词检测", "复习检测"], key="student_progress_test_type")
-    test_mode = st.selectbox("作答方式", ["英译中", "中译英", "混合模式"], key="student_progress_test_mode")
-    test_count = st.selectbox("本次检测题数", [15, 25, 35, 45, 60], index=1, key="student_progress_test_count")
-
-    if st.button("开始学习进度检测", key="start_student_progress_test", use_container_width=True):
-        ok, payload = dbs.build_progress_test(student_id, test_type, test_mode, test_count)
-        if ok:
-            st.session_state["student_test_payload"] = payload
-            st.session_state["student_test_source_label"] = f"学习进度检测：{test_type}"
-            st.success("已进入学习进度检测。")
-            st.rerun()
-        else:
-            st.warning(payload)
-
-
-def _render_book_test_launcher(student_id: int):
-    st.markdown("### 词汇书抽词检测")
-    st.caption("适合从指定词汇书或单元直接开始，快速完成今天的词汇任务。")
-
-    books = dbs.get_all_word_books()
-    if not books:
-        st.info("当前还没有词汇书。")
-        return
-
-    book_options = {label: book_id for book_id, label in books}
-    selected_book_label = st.selectbox("选择词汇书", list(book_options.keys()), key="student_book_test_book")
-    selected_book_id = book_options[selected_book_label]
-
-    units = dbs.get_units_by_book(selected_book_id)
-    unit_name_to_id = {}
-    for unit_id, unit_name, _unit_order in units:
-        unit_name_to_id[unit_name] = unit_id
-
-    selected_unit_labels = st.multiselect(
-        "选择单元（可多选；如果一个都不选，默认检测整本词汇书）",
-        options=list(unit_name_to_id.keys()),
-        default=[],
-        key="student_book_test_units",
-    )
-
-    selected_unit_ids = [unit_name_to_id[label] for label in selected_unit_labels]
-
-    if selected_unit_labels:
-        st.caption("当前已选择单元：" + " / ".join(selected_unit_labels))
-    else:
-        st.caption("当前范围：整本词汇书")
-
-    test_mode = st.selectbox("作答方式", ["英译中", "中译英", "混合模式"], key="student_book_test_mode")
-    test_count = st.selectbox("本次检测题数", [15, 25, 35, 45, 60], index=1, key="student_book_test_count")
-
-    if st.button("开始词汇书检测", key="start_student_book_test", use_container_width=True):
-        ok, payload = dbs.build_book_test(
-            student_id,
-            selected_book_id,
-            selected_unit_ids,
-            test_mode,
-            test_count,
-        )
-
-        if ok:
-            st.session_state.pop("student_test_result", None)
-            st.session_state["student_test_payload"] = payload
-
-            scope = " / ".join(selected_unit_labels) if selected_unit_labels else "整本词汇书"
-            st.session_state["student_test_source_label"] = (
-                f"词汇书抽词检测：{selected_book_label} / {scope}"
-            )
-
-            st.success("已进入词汇书检测。")
-            st.rerun()
-        else:
-            st.warning(payload)
-
-
-def _render_login():
-    st.info("请输入老师分配给你的账号和密码。")
-
-    with st.form("student_login_form"):
-        login_account = st.text_input("账号")
-        login_password = st.text_input("密码", type="password")
-        submitted = st.form_submit_button("登录")
-
-    if not submitted:
-        return None
-
-    try:
-        student = dbs.authenticate_student(login_account, login_password)
-    except Exception as e:
-        st.error("登录功能暂时不可用，请联系老师检查学生账号字段是否已经配置。")
-        return None
-
-    if not student:
-        st.error("账号或密码不正确。")
-        return None
-
-    st.session_state["student_login"] = student
-    st.session_state["student_current_page"] = "home"
-    st.session_state["student_home_focus_section"] = "task_pool"
-    st.session_state.pop("student_test_payload", None)
-    st.session_state.pop("student_test_result", None)
-    st.rerun()
-
-
-def _render_logged_in_header(student):
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        st.header(f"欢迎，{student['name']}")
-        if student.get("grade"):
-            st.caption(f"年级：{student['grade']}")
-    with col2:
-        if st.button("退出登录", key="student_logout"):
-            for key in [
-                "student_login",
-                "student_test_payload",
-                "student_test_result",
-                "student_current_page",
-                "student_home_focus_section",
-                "student_auto_open_lesson_id",
-                "student_auto_open_learned_words_dialog",
-            ]:
-                st.session_state.pop(key, None)
-            st.rerun()
-
-
-def _render_dashboard_styles():
-    st.markdown(
-        """
-        <style>
-        .student-page-shell {
-            padding-top: 4px;
-        }
-        .student-nav-shell {
-            margin: 6px 0 14px 0;
-            padding: 12px 14px 10px 14px;
-            border: 1px solid #d9e6f2;
-            border-radius: 18px;
-            background: linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(247,251,255,0.96) 100%);
-            box-shadow: 0 10px 28px rgba(33, 76, 110, 0.08);
-        }
-        .student-nav-title {
-            color: #486581;
-            font-size: 13px;
-            margin-bottom: 4px;
-        }
-        .student-nav-subtitle {
-            color: #7b8794;
-            font-size: 13px;
-        }
-        .student-page-hero {
-            border: 1px solid #d9e6f2;
-            border-radius: 22px;
-            padding: 18px 20px;
-            background:
-                radial-gradient(circle at top right, rgba(227, 242, 253, 0.95), rgba(255,255,255,0) 30%),
-                linear-gradient(180deg, #ffffff 0%, #f6fbff 100%);
-            box-shadow: 0 10px 30px rgba(33, 76, 110, 0.08);
-            margin-bottom: 16px;
-        }
-        .student-page-eyebrow {
-            color: #5a7184;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            margin-bottom: 6px;
-        }
-        .student-page-title-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 8px;
-        }
-        .student-page-title {
-            color: #102a43;
-            font-size: 28px;
-            font-weight: 700;
-            margin: 0;
-        }
-        .student-page-description {
-            color: #486581;
-            font-size: 14px;
-            line-height: 1.7;
-            margin-bottom: 0;
-        }
-        .student-page-badge {
-            display: inline-block;
-            padding: 6px 12px;
-            border-radius: 999px;
-            background: #e8f4ff;
-            color: #1f5f8b;
-            font-size: 13px;
-            white-space: nowrap;
-        }
-        .student-home-card {
-            border: 1px solid #d9e6f2;
-            border-radius: 18px;
-            padding: 18px 20px;
-            background: linear-gradient(180deg, #ffffff 0%, #f6fbff 100%);
-            box-shadow: 0 8px 22px rgba(33, 76, 110, 0.06);
-            margin-bottom: 12px;
-        }
-        .student-home-chip {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 999px;
-            background: #e8f4ff;
-            color: #23527c;
-            font-size: 13px;
-            margin-right: 8px;
-            margin-bottom: 8px;
-        }
-        .student-home-kicker {
-            color: #5a7184;
-            font-size: 13px;
-            margin-bottom: 6px;
-        }
-        .student-home-title {
-            font-size: 26px;
-            font-weight: 700;
-            color: #183b56;
-            margin: 0 0 8px 0;
-        }
-        .student-home-subtitle {
-            color: #486581;
-            font-size: 15px;
-            margin-bottom: 0;
-        }
-        .student-home-task-title {
-            font-size: 20px;
-            font-weight: 700;
-            color: #102a43;
-            margin: 0 0 8px 0;
-        }
-        .student-home-task-desc {
-            color: #486581;
-            font-size: 14px;
-            margin-bottom: 0;
-        }
-        .student-home-history-tip {
-            color: #52606d;
-            font-size: 14px;
-            margin-top: 2px;
-        }
-        .student-diagnosis-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 12px;
-            margin-top: 12px;
-        }
-        .student-diagnosis-mini-card {
-            border: 1px solid #d9e6f2;
-            border-radius: 16px;
-            padding: 14px 16px;
-            background: #ffffff;
-        }
-        .student-diagnosis-mini-title {
-            color: #486581;
-            font-size: 13px;
-            margin-bottom: 6px;
-        }
-        .student-diagnosis-mini-body {
-            color: #102a43;
-            font-size: 15px;
-            line-height: 1.5;
-        }
-        .student-diagnosis-question-shell {
-            border: 1px solid #cfe0ef;
-            border-radius: 20px;
-            padding: 18px 20px 8px 20px;
-            background:
-                radial-gradient(circle at top right, rgba(227, 242, 253, 0.9), rgba(255,255,255,0) 34%),
-                linear-gradient(180deg, #ffffff 0%, #f8fbfe 100%);
-            box-shadow: 0 10px 26px rgba(33, 76, 110, 0.06);
-            margin-bottom: 18px;
-        }
-        .student-diagnosis-question-tag {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 999px;
-            background: #e6f4ea;
-            color: #17603a;
-            font-size: 12px;
-            font-weight: 600;
-            margin-bottom: 10px;
-        }
-        .student-diagnosis-question-title {
-            color: #102a43;
-            font-size: 24px;
-            font-weight: 700;
-            line-height: 1.45;
-            margin: 0 0 10px 0;
-        }
-        .student-diagnosis-question-subtitle {
-            color: #486581;
-            font-size: 15px;
-            line-height: 1.7;
-            margin-bottom: 12px;
-        }
-        .student-diagnosis-question-sentence {
-            padding: 12px 14px;
-            border-radius: 14px;
-            background: #f4f8fb;
-            border-left: 4px solid #4c9aff;
-            color: #334e68;
-            font-size: 15px;
-            line-height: 1.65;
-            margin-bottom: 12px;
-        }
-        .student-diagnosis-page-summary {
-            border: 1px solid #d8e5f0;
-            border-radius: 18px;
-            padding: 14px 16px;
-            background: linear-gradient(180deg, #fafdff 0%, #eef6fc 100%);
-            margin-bottom: 14px;
-        }
-        .student-diagnosis-page-title {
-            color: #102a43;
-            font-size: 18px;
-            font-weight: 700;
-            margin-bottom: 6px;
-        }
-        .student-diagnosis-page-meta {
-            color: #486581;
-            font-size: 14px;
-            line-height: 1.6;
-        }
-        .student-diagnosis-missing-box {
-            border: 1px solid #f4c7c3;
-            border-radius: 18px;
-            padding: 14px 16px;
-            background: linear-gradient(180deg, #fff8f7 0%, #fff1ef 100%);
-            margin-bottom: 14px;
-        }
-        .student-diagnosis-missing-title {
-            color: #b42318;
-            font-size: 16px;
-            font-weight: 700;
-            margin-bottom: 6px;
-        }
-        .student-diagnosis-missing-links a {
-            display: inline-block;
-            margin: 4px 8px 0 0;
-            padding: 6px 10px;
-            border-radius: 999px;
-            background: #ffffff;
-            border: 1px solid #f0b7b0;
-            color: #9f2a20;
-            text-decoration: none;
-            font-size: 13px;
-            font-weight: 600;
-        }
-        .vocab-feedback-overview {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 12px;
-            margin: 12px 0 10px 0;
-        }
-        .vocab-feedback-overview-item {
-            border: 1px solid #d9e6f2;
-            border-radius: 16px;
-            padding: 14px 16px;
-            background: linear-gradient(180deg, #ffffff 0%, #f6fbff 100%);
-            box-shadow: 0 8px 20px rgba(33, 76, 110, 0.05);
-        }
-        .vocab-feedback-overview-item .label {
-            display: block;
-            color: #5a7184;
-            font-size: 13px;
-            margin-bottom: 6px;
-        }
-        .vocab-feedback-overview-item .value {
-            color: #102a43;
-            font-size: 24px;
-            font-weight: 700;
-        }
-        .vocab-feedback-overview-item .value.correct {
-            color: #1f7a57;
-        }
-        .vocab-feedback-overview-item .value.wrong {
-            color: #c44747;
-        }
-        .vocab-feedback-chip-wrap {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            padding-top: 4px;
-        }
-        .vocab-feedback-chip {
-            display: inline-flex;
-            align-items: center;
-            padding: 6px 10px;
-            border-radius: 999px;
-            background: #eef6ff;
-            border: 1px solid #d7e7f6;
-            color: #285275;
-            font-size: 13px;
-        }
-        .vocab-feedback-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-            gap: 12px;
-            margin-top: 10px;
-        }
-        .vocab-feedback-card {
-            border-radius: 18px;
-            padding: 16px;
-            background: #ffffff;
-            box-shadow: 0 10px 24px rgba(33, 76, 110, 0.06);
-            min-height: 168px;
-        }
-        .vocab-feedback-card--wrong {
-            border: 1px solid #f1d3d3;
-            background: linear-gradient(180deg, #fffafa 0%, #ffffff 100%);
-        }
-        .vocab-feedback-card--correct {
-            border: 1px solid #d4eadf;
-            background: linear-gradient(180deg, #f7fffb 0%, #ffffff 100%);
-        }
-        .vocab-feedback-card-top {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 14px;
-        }
-        .vocab-feedback-card-title {
-            color: #102a43;
-            font-size: 18px;
-            font-weight: 700;
-            line-height: 1.4;
-        }
-        .vocab-feedback-card-mode {
-            color: #6b7c93;
-            font-size: 12px;
-            margin-top: 4px;
-        }
-        .vocab-feedback-card-pill {
-            display: inline-flex;
-            align-items: center;
-            padding: 5px 10px;
-            border-radius: 999px;
-            font-size: 12px;
-            white-space: nowrap;
-        }
-        .vocab-feedback-card-pill--wrong {
-            background: #fdecec;
-            color: #b53a3a;
-        }
-        .vocab-feedback-card-pill--correct {
-            background: #e6f6ed;
-            color: #17603f;
-        }
-        .vocab-feedback-answer-row {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            padding: 10px 12px;
-            border-radius: 14px;
-            background: rgba(237, 244, 250, 0.72);
-        }
-        .vocab-feedback-answer-row + .vocab-feedback-answer-row {
-            margin-top: 10px;
-        }
-        .vocab-feedback-answer-label {
-            color: #5a7184;
-            font-size: 12px;
-            letter-spacing: 0.02em;
-        }
-        .vocab-feedback-answer-value {
-            color: #102a43;
-            font-size: 15px;
-            line-height: 1.6;
-            word-break: break-word;
-        }
-        .vocab-test-shell {
-            border: 1px solid #d9e6f2;
-            border-radius: 22px;
-            padding: 18px 20px;
-            margin-top: 14px;
-            background:
-                radial-gradient(circle at top right, rgba(231, 244, 255, 0.9), rgba(255,255,255,0) 28%),
-                linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-            box-shadow: 0 10px 28px rgba(33, 76, 110, 0.07);
-        }
-        .vocab-test-shell-header {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 16px;
-            margin-bottom: 14px;
-        }
-        .vocab-test-shell-title {
-            color: #102a43;
-            font-size: 24px;
-            font-weight: 700;
-            margin: 0 0 6px 0;
-        }
-        .vocab-test-shell-desc {
-            color: #486581;
-            font-size: 14px;
-            line-height: 1.7;
-            margin: 0;
-        }
-        .vocab-test-shell-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 7px 12px;
-            border-radius: 999px;
-            background: #e8f4ff;
-            color: #1f5f8b;
-            font-size: 13px;
-            white-space: nowrap;
-        }
-        .vocab-test-overview {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap: 12px;
-            margin-bottom: 12px;
-        }
-        .vocab-test-overview-item {
-            border: 1px solid #d9e6f2;
-            border-radius: 16px;
-            padding: 14px 16px;
-            background: rgba(255, 255, 255, 0.92);
-        }
-        .vocab-test-overview-item .label {
-            display: block;
-            color: #5a7184;
-            font-size: 13px;
-            margin-bottom: 6px;
-        }
-        .vocab-test-overview-item .value {
-            color: #102a43;
-            font-size: 18px;
-            font-weight: 700;
-            line-height: 1.5;
-        }
-        .vocab-test-overview-item .value.pending {
-            color: #c26a14;
-        }
-        .vocab-test-questions {
-            display: grid;
-            gap: 14px;
-            margin-top: 16px;
-        }
-        .vocab-test-question-card {
-            border: 1px solid #dbe8f5;
-            border-radius: 18px;
-            padding: 16px 18px;
-            background: #ffffff;
-            box-shadow: 0 8px 20px rgba(33, 76, 110, 0.05);
-        }
-        .vocab-test-question-head {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 10px;
-        }
-        .vocab-test-question-index {
-            color: #0f5f87;
-            font-size: 13px;
-            font-weight: 700;
-            margin-bottom: 6px;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-        .vocab-test-question-prompt {
-            color: #102a43;
-            font-size: 18px;
-            font-weight: 700;
-            line-height: 1.55;
-        }
-        .vocab-test-question-mode {
-            display: inline-flex;
-            align-items: center;
-            padding: 5px 10px;
-            border-radius: 999px;
-            background: #f2f8fd;
-            border: 1px solid #d8e8f5;
-            color: #44627d;
-            font-size: 12px;
-            white-space: nowrap;
-        }
-        .vocab-test-question-tip {
-            color: #5a7184;
-            font-size: 13px;
-            margin-bottom: 2px;
-        }
-        .vocab-test-submit-box {
-            margin-top: 16px;
-            padding: 14px 16px;
-            border-radius: 16px;
-            background: linear-gradient(180deg, #f7fbff 0%, #eef6ff 100%);
-            border: 1px solid #d7e7f6;
-        }
-        .vocab-test-submit-title {
-            color: #102a43;
-            font-size: 16px;
-            font-weight: 700;
-            margin-bottom: 4px;
-        }
-        .vocab-test-submit-desc {
-            color: #486581;
-            font-size: 13px;
-            line-height: 1.6;
-            margin-bottom: 0;
-        }
-        div[data-testid="stForm"] .stRadio > label,
-        div[data-testid="stForm"] .stTextInput > label {
-            color: #334e68;
-            font-weight: 600;
-        }
-        div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {
-            min-height: 42px;
-        }
-        div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="secondary"] {
-            border-radius: 999px;
-            border: 1px solid #d7e7f6;
-            background: #f7fbff;
-            color: #335c81;
-        }
-        div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"] {
-            border-radius: 999px;
-            background: linear-gradient(135deg, #165d8c 0%, #0f7a9f 100%);
-            border: none;
-            box-shadow: 0 8px 18px rgba(18, 103, 145, 0.24);
-        }
-        @media (max-width: 900px) {
-            .student-page-title-row {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-            .vocab-feedback-card {
-                min-height: auto;
-            }
-            .vocab-test-shell-header,
-            .vocab-test-question-head {
-                flex-direction: column;
-            }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _render_top_navigation():
-    current_page = st.session_state.get("student_current_page", "home")
-    st.markdown(
-        """
-        <div class="student-nav-shell">
-            <div class="student-nav-title">学习导航</div>
-            <div class="student-nav-subtitle">把今天要做的事情收成几个清晰页面，减少上下翻找。</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    columns = st.columns(len(NAV_ITEMS))
-    for column, (page_key, label) in zip(columns, NAV_ITEMS):
-        with column:
-            button_type = "primary" if current_page == page_key else "secondary"
-            if st.button(label, key=f"student_nav_{page_key}", type=button_type, use_container_width=True):
-                _navigate_to_page(page_key, focus_section="task_pool" if page_key == "home" else None)
-
-
-def _render_page_hero(current_page: str, home_data: dict):
-    meta = PAGE_META.get(current_page, PAGE_META["home"])
-    badge = ""
-
-    if current_page == "home":
-        badge = f"今日主任务：{home_data.get('primary_task', '开始今天的成长之旅')}"
-    elif current_page == "vocab_test":
-        if st.session_state.get("student_test_payload"):
-            badge = "当前状态：正在进行中的检测"
-        else:
-            badge = "当前状态：可直接开始新一轮检测"
-    elif current_page == "task_pool":
-        badge = f"今日主任务：{home_data.get('primary_task', '开始今天的成长之旅')}"
-    elif current_page == "initial_diagnosis":
-        badge = "当前状态：诊断完成后会自动更新首页任务"
-    elif current_page == "profile_page":
-        badge = f"当前阶段：{home_data.get('stage_label', '准备起步')}"
-    else:
-        badge = f"当前称号：{home_data.get('title_label', '启程学员')}"
-
-    st.markdown(
-        f"""
-        <div class="student-page-hero">
-            <div class="student-page-eyebrow">{meta["eyebrow"]}</div>
-            <div class="student-page-title-row">
-                <div class="student-page-title">{meta["title"]}</div>
-                <div class="student-page-badge">{badge}</div>
-            </div>
-            <p class="student-page-description">{meta["description"]}</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _render_page_quick_actions(current_page: str):
-    if current_page == "home":
-        return
-
-    left, right = st.columns([1, 1])
-    with left:
-        if st.button("返回学习首页", key=f"back_home_{current_page}", use_container_width=True):
-            _navigate_to_page("home", focus_section="task_pool")
-    with right:
-        if current_page != "profile_page":
-            if st.button("查看成长画像", key=f"jump_profile_{current_page}", use_container_width=True):
-                _navigate_to_page("profile_page")
-
-
-def _render_welcome_section(home_data: dict):
-    unlocked_modules = home_data.get("unlocked_modules", [])
-    module_html = "".join(
-        f'<span class="student-home-chip">{module}</span>' for module in unlocked_modules
-    ) or '<span class="student-home-chip">新的学习旅程</span>'
-
-    st.markdown(
-        f"""
-        <div class="student-home-card">
-            <div class="student-home-kicker">欢迎回来</div>
-            <div class="student-home-title">{home_data["student_name"]}，今天继续向前走一点点</div>
-            <p class="student-home-subtitle">
-                当前称号：<strong>{home_data["title_label"]}</strong>
-                &nbsp;&nbsp;|&nbsp;&nbsp;
-                当前阶段：<strong>{home_data["stage_label"]}</strong>
-            </p>
-            <p class="student-home-subtitle">{home_data["growth_feedback"]}</p>
-            <div style="margin-top: 10px;">{module_html}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _render_diagnosis_summary_card(home_data: dict):
-    diagnosis = home_data.get("diagnosis_summary", {})
-    if not diagnosis.get("has_diagnosis"):
-        return
-
-    st.markdown("## 当前诊断结果")
-    st.markdown(
-        f"""
-        <div class="student-home-card">
-            <div class="student-home-kicker">你的当前起点</div>
-            <div class="student-home-task-title">{diagnosis.get("title_label", "")} ｜ {diagnosis.get("stage_label", "")}</div>
-            <p class="student-home-subtitle">{diagnosis.get("growth_focus", "")}</p>
-            <div class="student-diagnosis-grid">
-                <div class="student-diagnosis-mini-card">
-                    <div class="student-diagnosis-mini-title">词汇量区间</div>
-                    <div class="student-diagnosis-mini-body">{diagnosis.get("vocab_band", "待生成")}</div>
-                </div>
-                <div class="student-diagnosis-mini-card">
-                    <div class="student-diagnosis-mini-title">阅读画像</div>
-                    <div class="student-diagnosis-mini-body">{diagnosis.get("reading_profile", "待生成")}</div>
-                </div>
-                <div class="student-diagnosis-mini-card">
-                    <div class="student-diagnosis-mini-title">语法重点</div>
-                    <div class="student-diagnosis-mini-body">{diagnosis.get("grammar_gap", "待生成")}</div>
-                </div>
-                <div class="student-diagnosis-mini-card">
-                    <div class="student-diagnosis-mini-title">建议轨道</div>
-                    <div class="student-diagnosis-mini-body">{diagnosis.get("suggested_track", "待生成")}</div>
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    if st.button("查看我的成长画像", key="jump_to_profile_page", use_container_width=True):
-        _navigate_to_page("profile_page")
-
-def _render_primary_task_section(home_data: dict):
-    button_key = f"student_home_start_today_{home_data['student_name']}"
-
-    st.markdown(
-        f"""
-        <div class="student-home-card">
-            <div class="student-home-kicker">今日成长之旅</div>
+            <div class="student-home-kicker">今天先做什么</div>
             <div class="student-home-task-title">{home_data["primary_task"]}</div>
-            <p class="student-home-subtitle">预计用时：{home_data["primary_task_eta"]}</p>
-            <p class="student-home-task-desc">{home_data["current_task_cards"][0]["description"]}</p>
+            <p class="student-home-task-desc">
+                点击上方“开始今天的成长之旅”会直接进入学习任务池；
+                任务池页面只负责承接今天的任务，不再和其他模块混在一起。
+            </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    if st.button("开始今天的成长之旅", key=button_key, type="primary", use_container_width=True):
-        _navigate_to_page("task_pool", focus_section="task_pool")
 
 
-def _render_light_status_section(home_data: dict):
-    unlocked_modules = home_data.get("unlocked_modules", [])
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("本周完成度", f"{home_data['weekly_completion_ratio']:.0%}")
-        st.progress(home_data["weekly_completion_ratio"])
-    with col2:
-        st.metric("连续学习天数", f"{home_data['streak_days']} 天")
-        st.caption("按近 30 天的学案创建与检测完成日期计算")
-    with col3:
-        st.metric("已解锁模块", len(unlocked_modules))
-        st.caption(" / ".join(unlocked_modules) if unlocked_modules else "完成首个任务后会逐步解锁")
+def _render_task_pool_page(home_data: dict):
+    _set_current_page("task_pool", focus_section="task_pool")
+    _render_task_pool_section(home_data)
 
-
-def _render_task_pool_section(home_data: dict):
-    _render_section_anchor("task_pool")
-    st.markdown("## 学习任务池")
-    _render_section_focus_badge("task_pool")
-    current_cards = home_data.get("current_task_cards", [])
-    history_cards = home_data.get("history_task_cards", [])
-
-    st.markdown("### 当前待完成任务池")
-    if not current_cards:
-        st.info("今天先从一小步开始，我们会在这里给你准备接下来的任务。")
-    else:
-        columns = st.columns(len(current_cards))
-        for index, (column, card) in enumerate(zip(columns, current_cards)):
-            badge = "今日主任务" if card.get("is_primary") else "接下来可以做"
-            with column:
-                st.markdown(
-                    f"""
-                    <div class="student-home-card">
-                        <div class="student-home-kicker">{badge}</div>
-                        <div class="student-home-task-title">{card["title"]}</div>
-                        <p class="student-home-subtitle">预计用时：{card["eta"]}</p>
-                        <p class="student-home-task-desc">{card["description"]}</p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                button_label = "开始这一项" if card.get("action_type") != "focus_section" else "查看这一项"
-                if st.button(button_label, key=f"student_current_task_{index}", use_container_width=True):
-                    if _run_task_action(st.session_state["student_login"]["id"], card):
-                        st.rerun()
-
-    st.markdown("### 历史内容池")
-    if not history_cards:
-        st.info("完成第一轮学习后，这里会帮你收集可回看的旧内容。")
-        return
-
-    columns = st.columns(len(history_cards))
-    for index, (column, card) in enumerate(zip(columns, history_cards)):
-        with column:
-            st.markdown(
-                f"""
-                <div class="student-home-card">
-                    <div class="student-home-kicker">已完成内容</div>
-                    <div class="student-home-task-title">{card["title"]}</div>
-                    <p class="student-home-subtitle">{card["eta"]}</p>
-                    <p class="student-home-task-desc">{card["description"]}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if st.button("前往回看", key=f"student_history_task_{index}", use_container_width=True):
-                if _run_task_action(st.session_state["student_login"]["id"], card):
-                    st.rerun()
-
-
-def _render_focus_hint():
-    if st.session_state.get("student_current_page", "home") != "home":
-        return
-
-    target_section = st.session_state.get("student_home_focus_section")
-    if not target_section:
-        return
-
-    target_label = SECTION_LABELS.get(target_section, "对应学习区域")
-    st.info(f"今天先从下方的“{target_label}”开始吧，我已经帮你把重点放在那里了。")
-
-
-def _render_section_focus_badge(section_key: str):
-    current_page = st.session_state.get("student_current_page", "home")
-    target_section = st.session_state.get("student_home_focus_section")
-    if current_page == SECTION_TO_PAGE.get(section_key, section_key) and (
-        target_section == section_key or current_page == section_key
-    ):
-        st.success(f"今天建议先完成这一部分：{SECTION_LABELS.get(section_key, '当前区域')}")
-
-
-def _clear_diagnosis_session_state():
-    for key in [
-        "student_diagnosis_active",
-        "student_diagnosis_step",
-        "student_diagnosis_answers",
-        "student_diagnosis_definition",
-        "student_diagnosis_started_at",
-        "student_diagnosis_module_started_at",
-        "student_diagnosis_module_started_at_map",
-        "student_diagnosis_vocab_page",
-        "student_diagnosis_missing_question_ids",
-        "student_diagnosis_missing_page",
-    ]:
-        st.session_state.pop(key, None)
-
-
-def _prepare_initial_diagnosis_definition(*, force_refresh: bool = False):
-    if not force_refresh:
-        cached_definition = st.session_state.get("student_diagnosis_definition")
-        if cached_definition:
-            return cached_definition
-
-    vocab_questions = dbs.get_diagnostic_vocab_items_for_test()
-    definition = build_initial_diagnosis_definition(vocab_questions)
-    st.session_state["student_diagnosis_definition"] = definition
-    return definition
-
-
-def _render_diagnostic_vocab_bank_status():
-    try:
-        status = dbs.get_diagnostic_vocab_bank_status()
-    except Exception as exc:
-        st.error("首次诊断暂时还不能开始，请稍后再试。")
-        return {"ready_for_diagnosis": False, "load_error": str(exc)}
-
-    total_count = status.get("total_count", 0)
-    ready_for_diagnosis = bool(status.get("ready_for_diagnosis"))
-    if ready_for_diagnosis:
-        st.success(f"诊断题库已就绪，本次会从 {total_count} 道正式题里为你生成个人诊断。")
-    else:
-        st.warning("诊断题库还在准备中，当前还不能开始首次诊断。")
-    return status
-
-
-def _build_saved_diagnosis_result(student_id: int):
-    latest_record = dbs.get_latest_diagnosis_record(student_id) or {}
-    latest_snapshot = dbs.get_latest_profile_snapshot(student_id) or {}
-    profile_payload = latest_snapshot.get("profile_payload") or {}
-
-    if not latest_record and not latest_snapshot:
-        return None
-
-    return {
-        "scores": latest_record.get("module_scores") or {},
-        "totals": latest_record.get("module_totals") or {},
-        "vocab_profile_summary": profile_payload.get("vocab_profile_summary") or "",
-        "vocab_diagnostic_result": profile_payload.get("vocab_diagnostic_result") or {},
-        "vocab_training_track": profile_payload.get("vocab_training_track") or "",
-        "vocab_training_track_label": profile_payload.get("vocab_training_track_label") or "",
-        "vocab_training_track_reason": profile_payload.get("vocab_training_track_reason") or "",
-        "module_reports": profile_payload.get("module_reports") or {},
-        "priority_module": profile_payload.get("priority_module"),
-        "strongest_module": profile_payload.get("strongest_module"),
-        "overall_accuracy": profile_payload.get("overall_accuracy"),
-        "overall_summary": profile_payload.get("overall_summary") or latest_snapshot.get("summary_text") or "",
-        "title_label": latest_snapshot.get("title_label") or "",
-        "stage_label": latest_snapshot.get("stage_label") or "",
-        "growth_focus": latest_snapshot.get("growth_focus") or "",
-        "summary_text": latest_snapshot.get("summary_text") or "",
-        "next_actions": profile_payload.get("next_actions") or [],
-        "dimensions": profile_payload.get("dimensions") or {},
-        "suggested_track": profile_payload.get("suggested_track") or latest_record.get("suggested_track") or "",
-        "vocab_band": profile_payload.get("vocab_band") or latest_record.get("vocab_band") or "",
-        "reading_profile": profile_payload.get("reading_profile") or latest_record.get("reading_profile") or "",
-        "grammar_gap": profile_payload.get("grammar_gap") or latest_record.get("grammar_gap") or "",
-        "writing_profile": profile_payload.get("writing_profile") or latest_record.get("writing_profile") or "",
-    }
-
-
-def _render_diagnosis_module_overview(definition, active_step: int | None = None):
-    columns = st.columns(len(definition))
-    for index, (column, module) in enumerate(zip(columns, definition)):
-        if active_step is None:
-            status_label = "待完成"
-        elif index < active_step:
-            status_label = "已完成"
-        elif index == active_step:
-            status_label = "当前进行中"
-        else:
-            status_label = "待完成"
-
-        with column:
-            st.markdown(
-                f"""
-                <div class="student-diagnosis-mini-card" style="min-height: 150px;">
-                    <div class="student-diagnosis-mini-title">{index + 1}. {module.get("short_title", module["title"])}</div>
-                    <div class="student-diagnosis-mini-body">
-                        {status_label}<br/>
-                        预计 {module.get("estimated_minutes", 3)} 分钟<br/>
-                        {len(module.get("questions", []))} 道题
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-
-VOCAB_DIAG_PAGE_SIZE = 8
-LEVEL_SEGMENT_LABELS = {
-    "L1": "L1 基础生存词",
-    "L2": "L2 高频基础词",
-    "L3": "L3 阅读核心词",
-    "L4": "L4 进阶阅读词",
-    "L5": "L5 熟词生义与易混词",
-}
-QUESTION_TYPE_LABELS = {
-    "en_to_zh_choice": "英文识义",
-    "en_to_zh": "英文识义",
-    "zh_to_en": "中文找英文",
-    "polysemy_context": "语境义判断",
-    "confusable_choice": "易混词辨析",
-}
-
-
-def _format_question_type_label(question_type: str) -> str:
-    return QUESTION_TYPE_LABELS.get(question_type or "", question_type or "词汇判断")
-
-
-def _build_vocab_page_meta(questions: list[dict]) -> str:
-    level_labels = []
-    question_type_labels = []
-    for question in questions:
-        level = str(question.get("level") or "").strip()
-        if level and level not in level_labels:
-            level_labels.append(level)
-        question_type = _format_question_type_label(str(question.get("question_type") or "").strip())
-        if question_type and question_type not in question_type_labels:
-            question_type_labels.append(question_type)
-    parts = []
-    if level_labels:
-        parts.append("层级：" + " / ".join(level_labels))
-    if question_type_labels:
-        parts.append("题型：" + " / ".join(question_type_labels))
-    return " ｜ ".join(parts)
-
-
-def _build_vocab_page_title(questions: list[dict]) -> str:
-    if not questions:
-        return "词汇诊断"
-    first_question = questions[0]
-    level = str(first_question.get("level") or "").strip()
-    question_type = _format_question_type_label(str(first_question.get("question_type") or "").strip())
-    level_label = LEVEL_SEGMENT_LABELS.get(level, level or "词汇诊断")
-    return f"{level_label} · {question_type}"
-
-
-def _build_question_anchor_id(question_id: str) -> str:
-    normalized = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(question_id or "").strip())
-    return f"diag-question-{normalized or 'unknown'}"
-
-
-def _render_vocab_question_card(question: dict, question_index: int):
-    question_type_label = _format_question_type_label(str(question.get("question_type") or "").strip())
-    level_label = str(question.get("level") or "").strip()
-    prompt = escape(str(question.get("prompt") or ""))
-    sentence = escape(str(question.get("sentence") or ""))
-    anchor_id = _build_question_anchor_id(str(question.get("id") or ""))
+    history_summary = home_data.get("history_summary", {})
+    st.markdown("## 成长记录回看")
     st.markdown(
         f"""
-        <div id="{anchor_id}" class="student-diagnosis-question-shell">
-            <div class="student-diagnosis-question-tag">第 {question_index} 题 · {level_label} · {question_type_label}</div>
-            <div class="student-diagnosis-question-title">{prompt}</div>
-            <div class="student-diagnosis-question-subtitle">
-                请选择你认为最合适的答案；如果完全不会，就选“我不知道”。
-            </div>
-            {"<div class='student-diagnosis-question-sentence'>" + sentence + "</div>" if sentence else ""}
+        <div class="student-home-history-tip">
+            已收集 {history_summary.get("recent_lessons_count", 0)} 份学案、
+            {history_summary.get("learned_vocab_count", 0)} 个已学单词、
+            {history_summary.get("test_record_count", 0)} 条检测记录。
         </div>
         """,
         unsafe_allow_html=True,
     )
-
-
-RESULT_LEVEL_LABELS = {
-    "L1": "L1 基础日常词",
-    "L2": "L2 初中高频词",
-    "L3": "L3 高中核心词",
-    "L4": "L4 阅读高频词",
-    "L5": "L5 熟词生义与易混词",
-}
-
-
-def _format_percent(value: float) -> str:
-    return f"{round((value or 0.0) * 100)}%"
-
-
-def _render_summary_metric(column, title: str, value: str, detail: str):
-    with column:
-        st.markdown(f"**{title}**")
-        st.markdown(value)
-        st.caption(detail)
-
-
-def _render_diagnosis_result(result: dict):
-    dimensions = result.get("dimensions", {}) or {}
-    module_reports = result.get("module_reports", {}) or {}
-    vocab_diagnostic_result = result.get("vocab_diagnostic_result") or {}
-
-    st.markdown("### 首次诊断结果")
-    st.write(result.get("overall_summary", ""))
-
-    if vocab_diagnostic_result.get("student_explanation"):
-        st.info(vocab_diagnostic_result.get("student_explanation", ""))
-    elif result.get("summary_text"):
-        st.info(result.get("summary_text", ""))
-
-    if vocab_diagnostic_result:
-        metric_cols = st.columns(4)
-        _render_summary_metric(
-            metric_cols[0],
-            "优先训练",
-            vocab_diagnostic_result.get("vocab_training_track_label", "待生成"),
-            vocab_diagnostic_result.get("vocab_training_track_reason", ""),
-        )
-        _render_summary_metric(
-            metric_cols[1],
-            "基础词掌握",
-            vocab_diagnostic_result.get("basic_vocab_status", "待判断"),
-            f"基础词正确率 {_format_percent(vocab_diagnostic_result.get('high_frequency_accuracy', 0.0))}",
-        )
-        _render_summary_metric(
-            metric_cols[2],
-            "阅读词掌握",
-            vocab_diagnostic_result.get("reading_vocab_status", "待判断"),
-            f"阅读词正确率 {_format_percent(vocab_diagnostic_result.get('reading_vocab_accuracy', 0.0))}",
-        )
-        _render_summary_metric(
-            metric_cols[3],
-            "答题把握度",
-            vocab_diagnostic_result.get("answer_confidence_label", "待判断"),
-            f"“我不知道”占比 {_format_percent(vocab_diagnostic_result.get('uncertain_rate', 0.0))}",
-        )
-
-    if module_reports:
-        st.markdown("### 模块诊断拆解")
-        for module_key in ["vocab", "reading", "grammar", "writing"]:
-            module = module_reports.get(module_key) or {}
-            if not module:
-                continue
-            score = module.get("score", 0)
-            total = module.get("total", 0)
-            ratio = module.get("ratio", 0.0) or 0.0
-            with st.container():
-                st.markdown(f"**{module.get('title', module_key)}**")
-                st.write(f"{score} / {total} | {module.get('level_label', '')}")
-                st.write(module.get("summary", ""))
-                st.caption(module.get("recommendation", ""))
-                st.progress(ratio)
-
-    if vocab_diagnostic_result:
-        st.markdown("### 词汇诊断结果解释")
-        st.write(vocab_diagnostic_result.get("main_vocab_problem", ""))
-
-        level_cols = st.columns(5)
-        level_keys = [
-            ("L1", "l1_accuracy"),
-            ("L2", "l2_accuracy"),
-            ("L3", "l3_accuracy"),
-            ("L4", "l4_accuracy"),
-            ("L5", "l5_accuracy"),
-        ]
-        for column, (level_code, key) in zip(level_cols, level_keys):
-            with column:
-                st.metric(RESULT_LEVEL_LABELS[level_code], _format_percent(vocab_diagnostic_result.get(key, 0.0)))
-
-        if vocab_diagnostic_result.get("l5_interpretation"):
-            st.caption(vocab_diagnostic_result.get("l5_interpretation", ""))
-
-        question_type_map = vocab_diagnostic_result.get("question_type_accuracy_map_display", {}) or {}
-        if question_type_map:
-            st.markdown("**题型表现**")
-            for label, value in question_type_map.items():
-                st.write(f"- {label}：{_format_percent(value)}")
-
-        strengths = [item for item in vocab_diagnostic_result.get("strengths", []) if item]
-        risk_flags = [item for item in vocab_diagnostic_result.get("risk_flags", []) if item]
-        recommended_actions = [item for item in vocab_diagnostic_result.get("recommended_actions", []) if item]
-
-        if strengths:
-            st.markdown("**你已经有的优势**")
-            for item in strengths:
-                st.write(f"- {item}")
-        if risk_flags:
-            st.markdown("**接下来要注意的地方**")
-            for item in risk_flags:
-                st.write(f"- {item}")
-        if recommended_actions:
-            st.markdown("**词汇训练路径推荐**")
-            for item in recommended_actions:
-                st.write(f"- {item}")
-
-    next_actions = [item for item in result.get("next_actions", []) if item]
-    if next_actions:
-        st.markdown("### 下一步建议")
-        for item in next_actions:
-            st.write(f"- {item}")
-
-    if dimensions:
-        with st.expander("查看六维画像说明", expanded=False):
-            for title, body in dimensions.items():
-                st.markdown(f"### {title}")
-                st.write(body)
-
-
-def _render_profile_page(home_data: dict):
-    _render_section_anchor("profile_page")
-    st.header("我的成长画像")
-    _render_section_focus_badge("profile_page")
-
-    diagnosis = home_data.get("diagnosis_summary", {})
-    if not diagnosis.get("has_diagnosis"):
-        st.info("完成首次诊断后，这里会显示更完整的成长画像。")
-        return
-
-    dimensions = diagnosis.get("dimensions", {}) or {}
-    vocab_result = diagnosis.get("vocab_diagnostic_result", {}) or {}
-
-    st.markdown("### 当前画像总览")
-    st.write(diagnosis.get("growth_focus", ""))
-    st.caption(diagnosis.get("suggested_track", ""))
-
-    if diagnosis.get("vocab_profile_summary"):
-        st.markdown("### 词汇画像")
-        st.info(diagnosis.get("vocab_profile_summary"))
-        if vocab_result:
-            col1, col2, col3 = st.columns(3)
-            _render_summary_metric(
-                col1,
-                "优先训练",
-                vocab_result.get("vocab_training_track_label", "待生成"),
-                vocab_result.get("vocab_training_track_reason", ""),
-            )
-            _render_summary_metric(
-                col2,
-                "答题把握度",
-                vocab_result.get("answer_confidence_label", "待判断"),
-                f"“我不知道”占比 {_format_percent(vocab_result.get('uncertain_rate', 0.0))}",
-            )
-            _render_summary_metric(
-                col3,
-                "当前最该解决",
-                vocab_result.get("basic_vocab_status", "待判断") if vocab_result.get("vocab_training_track") == "basic_survival_vocab" else vocab_result.get("vocab_training_track_label", "待生成"),
-                vocab_result.get("main_vocab_problem", ""),
-            )
-
-            strengths = [item for item in vocab_result.get("strengths", []) if item]
-            risk_flags = [item for item in vocab_result.get("risk_flags", []) if item]
-            recommended_actions = [item for item in vocab_result.get("recommended_actions", []) if item]
-            if strengths:
-                st.markdown("**目前的优势**")
-                for item in strengths:
-                    st.write(f"- {item}")
-            if risk_flags:
-                st.markdown("**当前风险点**")
-                for item in risk_flags:
-                    st.write(f"- {item}")
-            if recommended_actions:
-                st.markdown("**建议优先动作**")
-                for item in recommended_actions[:3]:
-                    st.write(f"- {item}")
-
-    if not dimensions:
-        st.info("当前画像数据还在整理中，稍后会在这里补齐。")
-        return
-
-    st.markdown("### 六维画像")
-    dimension_items = list(dimensions.items())
-    for start_index in range(0, len(dimension_items), 2):
-        columns = st.columns(2)
-        for column, (title, body) in zip(columns, dimension_items[start_index:start_index + 2]):
-            with column:
-                st.markdown(f"**{title}**")
-                st.write(body)
-
-    st.markdown("### 下一步建议")
-    next_steps = [
-        diagnosis.get("growth_focus", ""),
-        diagnosis.get("suggested_track", ""),
-        "先把今天的主任务完成，再回来看看有没有新的变化。",
-    ]
-    for item in [text for text in next_steps if text]:
-        st.write(f"- {item}")
-
-
-def _render_diagnostic_vocab_preview_box():
-    return
+    _render_focus_hint()
 
 
 def _sanitize_filename_part(text: str) -> str:
@@ -1754,14 +337,13 @@ def _looks_like_html(content: str) -> bool:
     return "<html" in lowered or "<body" in lowered or "<!doctype" in lowered
 
 
-def _render_lesson_content(detail):
+def _render_lesson_content(detail: dict):
     content = detail.get("content", "") or ""
     if not content:
         st.info("这份学案暂时没有内容。")
         return
 
     html_doc = content if _looks_like_html(content) else _build_lesson_download_html(detail)
-
     st.download_button(
         "下载网页 HTML（可用浏览器打印 PDF）",
         data=html_doc,
@@ -1814,8 +396,8 @@ def _render_lesson_vocab_rows(rows):
 
 
 @st.dialog("完整学案")
-def _show_lesson_detail_dialog(student_id: int, lesson_id: int):
-    detail = dbs.get_lesson_detail_for_student(student_id, lesson_id)
+def _show_lesson_detail_dialog(student_id: int, lesson_snapshot: dict):
+    detail = lesson_snapshot or {}
     if not detail:
         st.warning("没有找到这份学案，或这份学案不属于当前学生。")
         return
@@ -1827,8 +409,8 @@ def _show_lesson_detail_dialog(student_id: int, lesson_id: int):
 
 
 @st.dialog("本次学案新词表")
-def _show_lesson_vocab_dialog(student_id: int, lesson_id: int):
-    bundle = dbs.get_lesson_vocab_bundle_for_student(student_id, lesson_id)
+def _show_lesson_vocab_dialog(student_id: int, lesson_snapshot: dict):
+    bundle = (lesson_snapshot or {}).get("vocab_bundle")
     if not bundle:
         st.warning("没有找到这份学案，或这份学案不属于当前学生。")
         return
@@ -1884,14 +466,19 @@ def _render_lessons(student_id: int):
     _render_section_anchor("recent_lessons")
     st.header("我的最近学案")
     _render_section_focus_badge("recent_lessons")
-    lessons = dbs.get_student_recent_lessons(student_id, limit=10)
+    lessons = dbs.get_student_recent_lesson_snapshots(student_id, limit=10)
     if not lessons:
         st.info("这里会慢慢收集你的学案练习。完成今天的第一步后，再回来看看。")
         return
 
     auto_open_lesson_id = st.session_state.pop("student_auto_open_lesson_id", None)
     if auto_open_lesson_id:
-        _show_lesson_detail_dialog(student_id, auto_open_lesson_id)
+        auto_open_snapshot = next(
+            (lesson for lesson in lessons if lesson.get("id") == auto_open_lesson_id),
+            None,
+        ) or dbs.get_student_lesson_snapshot(student_id, auto_open_lesson_id)
+        if auto_open_snapshot:
+            _show_lesson_detail_dialog(student_id, auto_open_snapshot)
 
     latest_lesson = lessons[0]
     st.markdown(
@@ -1900,7 +487,7 @@ def _render_lessons(student_id: int):
             <div class="student-home-kicker">学案模块说明</div>
             <div class="student-home-task-title">最近 {len(lessons)} 份学案都集中放在这里</div>
             <p class="student-home-task-desc">
-                最近一次主题：{latest_lesson[3] or latest_lesson[1] or '继续练习'}；
+                最近一次主题：{latest_lesson.get("topic") or latest_lesson.get("lesson_type") or '继续练习'}；
                 在这个页面里只做两件事：查看完整学案，或查看对应新词表。
             </p>
         </div>
@@ -1909,14 +496,23 @@ def _render_lessons(student_id: int):
     )
 
     st.markdown("## 学案列表")
-    for lesson_id, lesson_type, difficulty, topic, created_at in lessons:
+    for lesson in lessons:
+        lesson_id = lesson.get("id")
+        lesson_type = lesson.get("lesson_type")
+        difficulty = lesson.get("difficulty")
+        topic = lesson.get("topic")
+        created_at = lesson.get("created_at")
+        bundle = lesson.get("vocab_bundle") or {}
         st.markdown(
             f"""
             <div class="student-home-card">
                 <div class="student-home-kicker">最近学案</div>
                 <div class="student-home-task-title">{topic or lesson_type or '本次学案'}</div>
                 <p class="student-home-subtitle">题型：{lesson_type or '未标注'} ｜ 难度：{difficulty or '未标注'}</p>
-                <p class="student-home-task-desc">创建时间：{created_at or '暂无记录'}</p>
+                <p class="student-home-task-desc">
+                    创建时间：{created_at or '暂无记录'}<br/>
+                    词汇结构：新词 {len(bundle.get("new_words", []))} ｜ 复习词 {len(bundle.get("review_words", []))}
+                </p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1924,10 +520,10 @@ def _render_lessons(student_id: int):
         col1, col2 = st.columns(2)
         with col1:
             if st.button("查看完整学案", key=f"view_lesson_{lesson_id}", use_container_width=True):
-                _show_lesson_detail_dialog(student_id, lesson_id)
+                _show_lesson_detail_dialog(student_id, lesson)
         with col2:
             if st.button("查看本次学案新词表", key=f"view_lesson_vocab_{lesson_id}", use_container_width=True):
-                _show_lesson_vocab_dialog(student_id, lesson_id)
+                _show_lesson_vocab_dialog(student_id, lesson)
 
 
 def _render_learned_words(student_id: int):
@@ -2133,7 +729,6 @@ def _render_test_history(student_id: int):
         )
 
         item_rows = dbs.get_vocab_test_record_items(test_record_id)
-
         with st.expander(f"查看记录 {test_record_id} 的答题反馈", expanded=False):
             results = []
             for item in item_rows:
@@ -2146,178 +741,7 @@ def _render_test_history(student_id: int):
                     "user_answer": user_answer,
                     "is_correct": is_correct,
                 })
-
             _render_test_feedback_blocks(results)
-
-
-def _render_vocab_test(student_id: int):
-    _render_section_anchor("vocab_test")
-    st.header("我的词汇检测")
-    _render_section_focus_badge("vocab_test")
-    payload = st.session_state.get("student_test_payload")
-    result = st.session_state.get("student_test_result")
-    _render_vocab_test_intro(payload_exists=bool(payload), result_exists=bool(result))
-
-    if not payload:
-        launcher_left, launcher_right = st.columns(2)
-        with launcher_left:
-            _render_progress_test_launcher(student_id)
-        with launcher_right:
-            _render_book_test_launcher(student_id)
-
-        if result:
-            st.markdown("---")
-            _render_vocab_test_result_panel(result)
-        return
-
-    st.markdown("---")
-    questions = payload.get("questions", [])
-    source_label = st.session_state.get("student_test_source_label", "学生检测")
-    answered_count = _count_answered_vocab_questions(questions)
-    pending_count = max(len(questions) - answered_count, 0)
-    mode_summary = " / ".join(sorted({str(q.get("mode") or "") for q in questions if q.get("mode")})) or "未标注"
-
-    st.markdown(
-        f"""
-        <div class="vocab-test-shell">
-            <div class="vocab-test-shell-header">
-                <div>
-                    <div class="vocab-test-shell-title">正在答题</div>
-                    <p class="vocab-test-shell-desc">
-                        这一页只做一件事：把这一轮检测顺着做完。提交后，页面会自动切换到结果反馈，不会保留冗长的答题过程。
-                    </p>
-                </div>
-                <span class="vocab-test-shell-badge">当前范围：{escape(source_label)}</span>
-            </div>
-            <div class="vocab-test-overview">
-                <div class="vocab-test-overview-item">
-                    <span class="label">本轮题数</span>
-                    <span class="value">{len(questions)}</span>
-                </div>
-                <div class="vocab-test-overview-item">
-                    <span class="label">作答方式</span>
-                    <span class="value">{escape(mode_summary)}</span>
-                </div>
-                <div class="vocab-test-overview-item">
-                    <span class="label">已填写</span>
-                    <span class="value">{answered_count}</span>
-                </div>
-                <div class="vocab-test-overview-item">
-                    <span class="label">待完成</span>
-                    <span class="value pending">{pending_count}</span>
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    with st.form("student_vocab_test_form", clear_on_submit=False):
-        user_answers = {}
-        st.markdown('<div class="vocab-test-questions">', unsafe_allow_html=True)
-
-        for idx, q in enumerate(questions, start=1):
-            st.markdown(
-                f"""
-                <div class="vocab-test-question-card">
-                <div class="vocab-test-question-head">
-                    <div>
-                        <div class="vocab-test-question-index">Question {idx}</div>
-                        <div class="vocab-test-question-prompt">{_build_vocab_test_prompt(q)}</div>
-                    </div>
-                    <span class="vocab-test-question-mode">{escape(str(q.get("mode") or "未标注"))}</span>
-                </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if q["mode"] == "英译中":
-                user_answers[q["vocab_item_id"]] = st.radio(
-                    "选择正确答案",
-                    q["options"],
-                    index=None,
-                    key=f"student_mcq_{q['vocab_item_id']}",
-                    label_visibility="collapsed",
-                )
-            else:
-                user_answers[q["vocab_item_id"]] = st.text_input(
-                    "输入你的答案",
-                    key=f"student_text_{q['vocab_item_id']}",
-                    placeholder="在这里输入英文单词",
-                    label_visibility="collapsed",
-                )
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown(
-            """
-            <div class="vocab-test-submit-box">
-                <div class="vocab-test-submit-title">完成后统一提交</div>
-                <p class="vocab-test-submit-desc">
-                    提交后会立即显示正确词和错词反馈；如果还有没写的题，也会按未作答一并进入结果页。
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        submitted = st.form_submit_button("提交检测", type="primary", use_container_width=True)
-
-    if submitted:
-        result = dbs.submit_student_test(
-            student_id=student_id,
-            payload=payload,
-            user_answers=user_answers,
-            source_label=st.session_state.get("student_test_source_label", "学生检测"),
-        )
-        st.session_state["student_test_result"] = result
-        st.session_state.pop("student_test_payload", None)
-        st.success(f"提交完成：{result['score']} / {result['total']}")
-        st.rerun()
-
-
-def _render_home_page(home_data: dict):
-    _set_current_page("home")
-    _render_welcome_section(home_data)
-
-    top_left, top_right = st.columns([1.2, 1])
-    with top_left:
-        _render_primary_task_section(home_data)
-    with top_right:
-        st.markdown("## 轻状态")
-        _render_light_status_section(home_data)
-
-    st.markdown("## 今日学习提醒")
-    st.markdown(
-        f"""
-        <div class="student-home-card">
-            <div class="student-home-kicker">今天先做什么</div>
-            <div class="student-home-task-title">{home_data["primary_task"]}</div>
-            <p class="student-home-task-desc">
-                点击上方“开始今天的成长之旅”会直接进入学习任务池；
-                任务池页面只负责承接今天的任务，不再和其他模块混在一起。
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _render_task_pool_page(home_data: dict):
-    _set_current_page("task_pool", focus_section="task_pool")
-    _render_task_pool_section(home_data)
-
-    history_summary = home_data.get("history_summary", {})
-    st.markdown("## 成长记录回看")
-    st.markdown(
-        f"""
-        <div class="student-home-history-tip">
-            已收集 {history_summary.get("recent_lessons_count", 0)} 份学案、
-            {history_summary.get("learned_vocab_count", 0)} 个已学单词、
-            {history_summary.get("test_record_count", 0)} 条检测记录。
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    _render_focus_hint()
 
 
 def main():
