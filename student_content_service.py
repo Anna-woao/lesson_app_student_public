@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import db_student as dbs
+from db_student import get_student_book_progress, get_student_unit_progress
 from student_records_data import (
     get_student_learned_vocab_summary,
     get_student_recent_lesson_snapshots,
@@ -35,7 +35,7 @@ def build_learned_words_page_data(student_id: int) -> dict[str, Any]:
 
 
 def build_progress_page_data(student_id: int) -> dict[str, Any]:
-    rows = dbs.get_student_book_progress(student_id)
+    rows = get_student_book_progress(student_id)
     books = []
     total_learned = 0
     total_vocab = 0
@@ -85,7 +85,7 @@ def build_progress_page_data(student_id: int) -> dict[str, Any]:
 
 
 def build_book_unit_progress_data(student_id: int, book_id: int) -> list[dict[str, Any]]:
-    unit_rows = dbs.get_student_unit_progress(student_id, book_id)
+    unit_rows = get_student_unit_progress(student_id, book_id)
     return [
         {
             "unit_id": unit_id,
