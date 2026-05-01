@@ -15,22 +15,6 @@ import streamlit as st
 from supabase_client import get_admin_supabase_client, get_supabase_client
 from student_records_data import (
     clear_student_records_cache,
-    get_diagnostic_vocab_answers,
-    get_latest_diagnostic_vocab_result,
-    get_latest_diagnosis_record,
-    get_latest_profile_snapshot,
-    get_lesson_detail_for_student,
-    get_lesson_vocab_bundle_for_student,
-    get_lesson_new_vocab_for_student,
-    get_student_lesson_snapshot,
-    get_student_recent_lesson_snapshots,
-    get_student_activity_dates,
-    get_student_learned_vocab,
-    get_student_learned_vocab_summary,
-    get_student_recent_lessons,
-    get_student_vocab_test_records,
-    get_vocab_test_record_items,
-    save_initial_diagnosis_result,
 )
 from student_vocab_domain_service import (
     build_questions_from_vocab_rows,
@@ -448,47 +432,6 @@ def _fetch_vocab_map(vocab_ids: List[int]) -> Dict[int, Tuple[str, str]]:
     return {r["id"]: (r.get("lemma", ""), r.get("default_meaning", "") or "") for r in rows}
 
 
-_POS_ALIASES = {
-    "a.": "adj.",
-    "adj.": "adj.",
-    "ad.": "adv.",
-    "adv.": "adv.",
-    "n.": "n.",
-    "v.": "v.",
-    "vi.": "vi.",
-    "vt.": "vt.",
-    "prep.": "prep.",
-    "conj.": "conj.",
-    "pron.": "pron.",
-    "num.": "num.",
-    "art.": "art.",
-    "det.": "det.",
-    "aux.": "aux.",
-    "int.": "int.",
-    "phr.": "phr.",
-    "abbr.": "abbr.",
-}
-_POS_TOKEN_PATTERN = "|".join(re.escape(token) for token in sorted(_POS_ALIASES, key=len, reverse=True))
-_POS_PREFIX_TOKEN_PATTERN_TEXT = (
-    r"linking\.?|modal\.?|prep\.?|conj\.?|pron\.?|abbr\.?|"
-    r"num\.?|art\.?|det\.?|aux\.?|adj\.?|adv\.?|phr\.?|"
-    r"int\.?|vi\.?|vt\.?|ad\.?|n\.?|v\.?|a\.?"
-)
-_POS_PREFIX_PATTERN = re.compile(
-    rf"^\s*&?\s*({_POS_PREFIX_TOKEN_PATTERN_TEXT})(?=\s|&|[\u4e00-\u9fff]|$)",
-    re.IGNORECASE,
-)
-_POS_ANY_PATTERN = re.compile(rf"&?\s*({_POS_TOKEN_PATTERN})", re.IGNORECASE)
-_POS_SEPARATORS = " \t\r\n.&/\\-:,;，,；;、:："
-_SPACED_POS_FIXES = (
-    (re.compile(r"con\s+j\.", re.IGNORECASE), "conj."),
-    (re.compile(r"ad\s+v\.", re.IGNORECASE), "adv."),
-    (re.compile(r"ad\s+j\.", re.IGNORECASE), "adj."),
-)
-
-
-def _student_display_meaning(raw_meaning: str) -> str:
-    return student_display_meaning(raw_meaning)
 
 def _fetch_vocab_detail_map(vocab_ids: List[int]) -> Dict[int, dict]:
     supabase = get_supabase_client()
@@ -818,19 +761,6 @@ def build_book_test(
     return True, payload
 
 
-def _build_questions_from_vocab_map(vocab_map, rows, test_mode: str):
-    return build_questions_from_vocab_rows(vocab_map, rows, test_mode)
-
-def _normalize_test_mode(mode: str) -> str:
-    return normalize_test_mode(mode)
-
-def _normalize_vocab_answer_text(text: str) -> str:
-    from student_vocab_domain_service import normalize_vocab_answer_text
-
-    return normalize_vocab_answer_text(text)
-
-def _grade_vocab_test_answer(question: dict, user_answer: str) -> tuple[bool, bool]:
-    return grade_vocab_test_answer(question, user_answer)
 
 def submit_student_test(student_id: int, payload: dict, user_answers: dict, source_label: str):
     results = []
