@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import streamlit as st
+
 from lesson_html_renderer import (
     build_lesson_plain_text,
     parse_lesson_text_to_parts,
@@ -168,6 +170,7 @@ def _fetch_student_lesson_rows(student_id: int, *, lesson_id: int | None = None,
     return supabase, rows
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_student_lesson_snapshot(student_id: int, lesson_id: int):
     supabase, rows = _fetch_student_lesson_rows(student_id, lesson_id=lesson_id)
     if not rows:
@@ -175,6 +178,7 @@ def get_student_lesson_snapshot(student_id: int, lesson_id: int):
     return _build_student_lesson_snapshot(rows[0], supabase)
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_student_recent_lesson_snapshots(student_id: int, limit: int = 10):
     supabase, rows = _fetch_student_lesson_rows(student_id, limit=limit)
     return [_build_student_lesson_snapshot(row, supabase) for row in rows]
@@ -211,6 +215,7 @@ def get_lesson_new_vocab_for_student(student_id: int, lesson_id: int):
         return []
     return bundle.get("new_words", [])
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_student_learned_vocab(student_id: int, limit: int = 200):
     supabase = get_supabase_client()
     prog = (
@@ -252,6 +257,7 @@ def get_student_learned_vocab(student_id: int, limit: int = 200):
     return result
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_student_learned_vocab_summary(student_id: int):
     supabase = get_supabase_client()
     progress_rows = _fetch_all_rows(
@@ -356,6 +362,7 @@ def get_student_learned_vocab_summary(student_id: int):
         "lesson_groups": lesson_groups,
     }
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_student_vocab_test_records(student_id: int, limit: int = 20):
     supabase = get_supabase_client()
     response = (
@@ -401,6 +408,7 @@ def get_student_vocab_test_records(student_id: int, limit: int = 20):
     ]
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_student_activity_dates(student_id: int, days: int = 30):
     supabase = get_supabase_client()
     lesson_rows = (
@@ -430,6 +438,7 @@ def get_student_activity_dates(student_id: int, days: int = 30):
     return sorted(activity_dates, reverse=True)[:days]
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_latest_diagnosis_record(student_id: int):
     supabase = get_admin_supabase_client() or get_supabase_client()
     try:
@@ -447,6 +456,7 @@ def get_latest_diagnosis_record(student_id: int):
     return rows[0] if rows else None
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_latest_profile_snapshot(student_id: int):
     supabase = get_admin_supabase_client() or get_supabase_client()
     try:
@@ -464,6 +474,7 @@ def get_latest_profile_snapshot(student_id: int):
     return rows[0] if rows else None
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_latest_diagnostic_vocab_result(student_id: int):
     supabase = get_admin_supabase_client() or get_supabase_client()
     try:
@@ -481,6 +492,7 @@ def get_latest_diagnostic_vocab_result(student_id: int):
     return rows[0] if rows else None
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_diagnostic_vocab_answers(diagnostic_id: int):
     supabase = get_admin_supabase_client() or get_supabase_client()
     try:
@@ -688,6 +700,14 @@ def save_initial_diagnosis_result(
     snapshot_rows = snapshot_resp.data or []
     snapshot = snapshot_rows[0] if snapshot_rows else None
 
+    clear_student_records_cache()
+    try:
+        from student_home_viewmodel import clear_student_home_viewmodel_cache
+
+        clear_student_home_viewmodel_cache()
+    except Exception:
+        pass
+
     return {
         "record": record,
         "vocab_result": vocab_result_record,
@@ -696,6 +716,7 @@ def save_initial_diagnosis_result(
     }
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_vocab_test_record_items(test_record_id: int):
     supabase = get_supabase_client()
     response = (
@@ -717,3 +738,17 @@ def get_vocab_test_record_items(test_record_id: int):
         )
         for row in rows
     ]
+
+
+def clear_student_records_cache() -> None:
+    get_student_lesson_snapshot.clear()
+    get_student_recent_lesson_snapshots.clear()
+    get_student_learned_vocab.clear()
+    get_student_learned_vocab_summary.clear()
+    get_student_vocab_test_records.clear()
+    get_student_activity_dates.clear()
+    get_latest_diagnosis_record.clear()
+    get_latest_profile_snapshot.clear()
+    get_latest_diagnostic_vocab_result.clear()
+    get_diagnostic_vocab_answers.clear()
+    get_vocab_test_record_items.clear()
