@@ -10,6 +10,7 @@ import streamlit.components.v1 as components
 import db_student as dbs
 from lesson_html_renderer import build_downloadable_lesson_html, build_lesson_plain_text
 from student_content_service import (
+    build_book_unit_progress_data,
     build_learned_words_page_data,
     build_lessons_page_data,
     build_progress_page_data,
@@ -344,8 +345,10 @@ def render_progress(student_id: int, *, render_section_anchor, render_section_fo
                 unsafe_allow_html=True,
             )
 
+    expanded_book_id = st.session_state.get("student_progress_expanded_book_id")
     st.markdown("## 词汇书进度")
     for book in books:
+        book_id = book["book_id"]
         st.markdown(
             f"""
             <div class="student-home-card">
@@ -361,8 +364,17 @@ def render_progress(student_id: int, *, render_section_anchor, render_section_fo
         )
         st.progress(book["ratio"])
 
-        with st.expander(f"查看 {book['label']} 的单元进度", expanded=False):
-            for unit in book["units"]:
+        is_expanded = expanded_book_id == book_id
+        action_label = "收起单元进度" if is_expanded else f"查看 {book['label']} 的单元进度"
+        if st.button(action_label, key=f"toggle_book_units_{book_id}", use_container_width=True):
+            st.session_state["student_progress_expanded_book_id"] = None if is_expanded else book_id
+            st.rerun()
+
+        if is_expanded:
+            unit_rows = build_book_unit_progress_data(student_id, book_id)
+            if not unit_rows:
+                st.info("这本词汇书暂时没有可展示的单元进度。")
+            for unit in unit_rows:
                 st.write(f"{unit['unit_name']}：{unit['learned_count']} / {unit['total_count']}")
                 st.progress(unit["ratio"])
 
@@ -402,13 +414,15 @@ def render_test_history(student_id: int, *, render_section_anchor, render_sectio
     with overview_col3:
         st.metric("最近一次正确率", f"{latest_record['accuracy']:.0%}")
 
+    expanded_record_id = st.session_state.get("student_test_history_expanded_record_id")
     st.markdown("## 检测记录列表")
     for record in records:
+        record_id = record["test_record_id"]
         st.markdown(
             f"""
             <div class="student-home-card">
                 <div class="student-home-kicker">检测记录{record["retry_tag"]}</div>
-                <div class="student-home-task-title">{record["source_label"] or '词汇检测记录'}</div>
+                <div class="student-home-task-title">{record["source_label"] or '??????'}</div>
                 <p class="student-home-subtitle">检测类型：{record["test_type"]} ｜ 作答方式：{record["test_mode"]}</p>
                 <p class="student-home-task-desc">
                     得分：{record["correct_count"]} / {record["total_count"]}（正确率：{record["accuracy"]:.0%}）<br/>
@@ -420,5 +434,11 @@ def render_test_history(student_id: int, *, render_section_anchor, render_sectio
             unsafe_allow_html=True,
         )
 
-        with st.expander(f"查看记录 {record['test_record_id']} 的答题反馈", expanded=False):
-            _render_test_feedback_blocks(build_test_feedback_results(record["test_record_id"]))
+        is_expanded = expanded_record_id == record_id
+        action_label = "收起答题反馈" if is_expanded else f"查看记录 {record_id} 的答题反馈"
+        if st.button(action_label, key=f"toggle_test_feedback_{record_id}", use_container_width=True):
+            st.session_state["student_test_history_expanded_record_id"] = None if is_expanded else record_id
+            st.rerun()
+
+        if is_expanded:
+            _render_test_feedback_blocks(build_test_feedback_results(record_id))
