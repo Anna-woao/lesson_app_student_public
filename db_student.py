@@ -11,8 +11,11 @@ import secrets
 import unicodedata
 from typing import Dict, List, Optional, Tuple
 
+import streamlit as st
+
 from supabase_client import get_admin_supabase_client, get_supabase_client
 from student_records_data import (
+    clear_student_records_cache,
     get_diagnostic_vocab_answers,
     get_latest_diagnostic_vocab_result,
     get_latest_diagnosis_record,
@@ -232,7 +235,7 @@ def import_structured_vocab_excel(file_bytes: bytes, source_name: str = ""):
     return vis.import_parsed_vocab_rows(parsed, source_name=source_name)
 
 
-
+@st.cache_data(ttl=20, show_spinner=False)
 def get_student_book_progress(student_id: int):
     supabase = get_supabase_client()
     books = (
@@ -299,6 +302,7 @@ def get_student_book_progress(student_id: int):
     return result
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_student_unit_progress(student_id: int, book_id: int):
     supabase = get_supabase_client()
     units = (
@@ -355,6 +359,7 @@ def get_student_unit_progress(student_id: int, book_id: int):
 
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def get_all_word_books():
     supabase = get_supabase_client()
     rows = (
@@ -370,6 +375,7 @@ def get_all_word_books():
     return result
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def get_units_by_book(book_id: int):
     supabase = get_supabase_client()
     rows = (
@@ -380,6 +386,13 @@ def get_units_by_book(book_id: int):
         .execute()
     ).data or []
     return [(r["id"], r["unit_name"], r.get("unit_order", 0)) for r in rows]
+
+
+def clear_student_progress_cache() -> None:
+    get_student_book_progress.clear()
+    get_student_unit_progress.clear()
+    get_all_word_books.clear()
+    get_units_by_book.clear()
 
 
 def _fetch_vocab_map(vocab_ids: List[int]) -> Dict[int, Tuple[str, str]]:
@@ -942,6 +955,16 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
             sync_error = str(exc)
     except Exception as exc:
         persistence_error = str(exc)
+
+    if persistence_error is None or sync_error is None:
+        clear_student_progress_cache()
+        clear_student_records_cache()
+        try:
+            from student_home_viewmodel import clear_student_home_viewmodel_cache
+
+            clear_student_home_viewmodel_cache()
+        except Exception:
+            pass
 
     return {
         "score": score,
