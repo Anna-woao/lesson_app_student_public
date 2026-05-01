@@ -6,7 +6,15 @@ import re
 import streamlit as st
 import streamlit.components.v1 as components
 
-import db_student as dbs
+from db_student import (
+    get_diagnostic_vocab_bank_status,
+    get_diagnostic_vocab_items_for_test,
+)
+from student_records_data import (
+    get_latest_diagnosis_record,
+    get_latest_profile_snapshot,
+    save_initial_diagnosis_result,
+)
 from student_diagnosis_service import (
     build_initial_diagnosis_definition,
     evaluate_initial_diagnosis,
@@ -59,7 +67,7 @@ def prepare_initial_diagnosis_definition(*, force_refresh: bool = False):
         if cached_definition:
             return cached_definition
 
-    vocab_questions = dbs.get_diagnostic_vocab_items_for_test()
+    vocab_questions = get_diagnostic_vocab_items_for_test()
     definition = build_initial_diagnosis_definition(vocab_questions)
     st.session_state["student_diagnosis_definition"] = definition
     return definition
@@ -83,7 +91,7 @@ def activate_initial_diagnosis(*, force_refresh: bool = False) -> None:
 
 def _render_diagnostic_vocab_bank_status():
     try:
-        status = dbs.get_diagnostic_vocab_bank_status()
+        status = get_diagnostic_vocab_bank_status()
     except Exception as exc:
         st.error("首次诊断暂时还不能开始，请稍后再试。")
         return {"ready_for_diagnosis": False, "load_error": str(exc)}
@@ -98,8 +106,8 @@ def _render_diagnostic_vocab_bank_status():
 
 
 def _build_saved_diagnosis_result(student_id: int):
-    latest_record = dbs.get_latest_diagnosis_record(student_id) or {}
-    latest_snapshot = dbs.get_latest_profile_snapshot(student_id) or {}
+    latest_record = get_latest_diagnosis_record(student_id) or {}
+    latest_snapshot = get_latest_profile_snapshot(student_id) or {}
     profile_payload = latest_snapshot.get("profile_payload") or {}
 
     if not latest_record and not latest_snapshot:
