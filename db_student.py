@@ -232,11 +232,13 @@ def import_structured_vocab_excel(file_bytes: bytes, source_name: str = ""):
     import vocab_import_service as vis
 
     parsed = parse_structured_vocab_excel(file_bytes, source_name=source_name)
-    return vis.import_parsed_vocab_rows(parsed, source_name=source_name)
+    result = vis.import_parsed_vocab_rows(parsed, source_name=source_name)
+    clear_student_progress_cache()
+    return result
 
 
-@st.cache_data(ttl=20, show_spinner=False)
-def get_student_book_progress(student_id: int):
+@st.cache_data(ttl=300, show_spinner=False)
+def _get_book_progress_index():
     supabase = get_supabase_client()
     books = (
         supabase.table("word_books")
@@ -245,15 +247,76 @@ def get_student_book_progress(student_id: int):
         .execute()
     ).data or []
 
+    buv_rows = _fetch_all_rows(
+        supabase.table("book_unit_vocab").select("book_id, vocab_item_id")
+    )
+    book_vocab_ids = [row.get("vocab_item_id") for row in buv_rows if row.get("vocab_item_id") is not None]
+    book_vocab_map_rows = _fetch_vocab_detail_map(book_vocab_ids)
+
+    book_vocab_keys: Dict[int, set[str]] = {}
+    for row in buv_rows:
+        book_id = row.get("book_id")
+        vocab_item_id = row.get("vocab_item_id")
+        if book_id is None or vocab_item_id is None:
+            continue
+        progress_key = _progress_key_for_vocab(vocab_item_id, book_vocab_map_rows)
+        if progress_key is None:
+            continue
+        book_vocab_keys.setdefault(book_id, set()).add(progress_key)
+
+    return {
+        "books": books,
+        "book_vocab_keys": book_vocab_keys,
+    }
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _get_book_unit_progress_index(book_id: int):
+    supabase = get_supabase_client()
+    units = (
+        supabase.table("word_units")
+        .select("id, unit_name, unit_order")
+        .eq("book_id", book_id)
+        .order("unit_order", desc=False)
+        .execute()
+    ).data or []
+
+    buv_rows = _fetch_all_rows(
+        supabase.table("book_unit_vocab").select("unit_id, vocab_item_id").eq("book_id", book_id)
+    )
+    vocab_ids = [row.get("vocab_item_id") for row in buv_rows if row.get("vocab_item_id") is not None]
+    vocab_detail_map = _fetch_vocab_detail_map(vocab_ids)
+
+    unit_vocab_keys: Dict[int, set[str]] = {}
+    for row in buv_rows:
+        unit_id = row.get("unit_id")
+        vocab_item_id = row.get("vocab_item_id")
+        if unit_id is None or vocab_item_id is None:
+            continue
+        progress_key = _progress_key_for_vocab(vocab_item_id, vocab_detail_map)
+        if progress_key is None:
+            continue
+        unit_vocab_keys.setdefault(unit_id, set()).add(progress_key)
+
+    return {
+        "units": units,
+        "unit_vocab_keys": unit_vocab_keys,
+    }
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def _get_student_progress_snapshot(student_id: int):
+    supabase = get_supabase_client()
     progress_rows = (
         supabase.table("student_vocab_progress")
         .select("vocab_item_id, status")
         .eq("student_id", student_id)
         .execute()
     ).data or []
+
     progress_vocab_ids = [row.get("vocab_item_id") for row in progress_rows if row.get("vocab_item_id") is not None]
     progress_vocab_map = _fetch_vocab_detail_map(progress_vocab_ids)
-    progress_by_key = {}
+    progress_by_key: Dict[str, str] = {}
     for row in progress_rows:
         vocab_item_id = row.get("vocab_item_id")
         progress_key = _progress_key_for_vocab(vocab_item_id, progress_vocab_map)
@@ -264,21 +327,19 @@ def get_student_book_progress(student_id: int):
             row.get("status", "learning"),
         )
 
-    buv_rows = _fetch_all_rows(
-        supabase.table("book_unit_vocab").select("book_id, vocab_item_id")
-    )
-    book_vocab_ids = [row.get("vocab_item_id") for row in buv_rows if row.get("vocab_item_id") is not None]
-    book_vocab_map_rows = _fetch_vocab_detail_map(book_vocab_ids)
-    book_vocab_map = {}
-    for row in buv_rows:
-        book_id = row.get("book_id")
-        vocab_item_id = row.get("vocab_item_id")
-        if book_id is None or vocab_item_id is None:
-            continue
-        progress_key = _progress_key_for_vocab(vocab_item_id, book_vocab_map_rows)
-        if progress_key is None:
-            continue
-        book_vocab_map.setdefault(book_id, set()).add(progress_key)
+    return {
+        "progress_by_key": progress_by_key,
+        "learned_vocab_keys": set(progress_by_key.keys()),
+    }
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def get_student_book_progress(student_id: int):
+    index = _get_book_progress_index()
+    books = index["books"]
+    book_vocab_map = index["book_vocab_keys"]
+    progress_snapshot = _get_student_progress_snapshot(student_id)
+    progress_by_key = progress_snapshot["progress_by_key"]
 
     result = []
     for book in books:
@@ -304,45 +365,16 @@ def get_student_book_progress(student_id: int):
 
 @st.cache_data(ttl=20, show_spinner=False)
 def get_student_unit_progress(student_id: int, book_id: int):
-    supabase = get_supabase_client()
-    units = (
-        supabase.table("word_units")
-        .select("id, unit_name, unit_order")
-        .eq("book_id", book_id)
-        .order("unit_order", desc=False)
-        .execute()
-    ).data or []
-
-    buv_rows = _fetch_all_rows(
-        supabase.table("book_unit_vocab").select("unit_id, vocab_item_id").eq("book_id", book_id)
-    )
-    book_vocab_ids = [row.get("vocab_item_id") for row in buv_rows if row.get("vocab_item_id") is not None]
-    book_vocab_map_rows = _fetch_vocab_detail_map(book_vocab_ids)
-
-    progress_rows = (
-        supabase.table("student_vocab_progress")
-        .select("vocab_item_id")
-        .eq("student_id", student_id)
-        .execute()
-    ).data or []
-    progress_vocab_ids = [row.get("vocab_item_id") for row in progress_rows if row.get("vocab_item_id") is not None]
-    progress_vocab_map = _fetch_vocab_detail_map(progress_vocab_ids)
-    learned_vocab_keys = {
-        _progress_key_for_vocab(row.get("vocab_item_id"), progress_vocab_map)
-        for row in progress_rows
-        if row.get("vocab_item_id") is not None
-    }
-    learned_vocab_keys.discard(None)
+    index = _get_book_unit_progress_index(book_id)
+    units = index["units"]
+    unit_vocab_keys = index["unit_vocab_keys"]
+    progress_snapshot = _get_student_progress_snapshot(student_id)
+    learned_vocab_keys = progress_snapshot["learned_vocab_keys"]
 
     result = []
     for unit in units:
         unit_id = unit["id"]
-        total_vocab_keys = {
-            _progress_key_for_vocab(row.get("vocab_item_id"), book_vocab_map_rows)
-            for row in buv_rows
-            if row.get("unit_id") == unit_id and row.get("vocab_item_id") is not None
-        }
-        total_vocab_keys.discard(None)
+        total_vocab_keys = unit_vocab_keys.get(unit_id, set())
         learned_in_unit = {
             progress_key
             for progress_key in total_vocab_keys
@@ -389,6 +421,9 @@ def get_units_by_book(book_id: int):
 
 
 def clear_student_progress_cache() -> None:
+    _get_book_progress_index.clear()
+    _get_book_unit_progress_index.clear()
+    _get_student_progress_snapshot.clear()
     get_student_book_progress.clear()
     get_student_unit_progress.clear()
     get_all_word_books.clear()
