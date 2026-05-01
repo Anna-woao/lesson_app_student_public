@@ -9,6 +9,267 @@ import db_student as dbs
 from student_ui_copy import build_test_result_summary
 
 
+def _render_vocab_test_styles():
+    st.markdown(
+        """
+        <style>
+        .vocab-launch-card,
+        .vocab-test-shell,
+        .vocab-result-shell {
+            border: 1px solid #dbeafe;
+            border-radius: 22px;
+            background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+            box-shadow: 0 14px 36px rgba(15, 23, 42, 0.06);
+            padding: 20px 22px;
+        }
+        .vocab-launch-title,
+        .vocab-test-shell-title,
+        .vocab-result-title {
+            color: #0f172a;
+            font-size: 22px;
+            font-weight: 850;
+            margin: 0 0 8px;
+        }
+        .vocab-launch-kicker,
+        .vocab-result-kicker {
+            color: #0369a1;
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: .11em;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+        .vocab-launch-desc,
+        .vocab-test-shell-desc,
+        .vocab-result-desc,
+        .vocab-test-submit-desc {
+            color: #475569;
+            line-height: 1.7;
+            margin: 0;
+        }
+        .vocab-test-shell-header,
+        .vocab-result-header,
+        .vocab-test-question-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 14px;
+        }
+        .vocab-test-shell-header,
+        .vocab-result-header {
+            margin-bottom: 18px;
+        }
+        .vocab-test-shell-badge,
+        .vocab-result-badge,
+        .vocab-test-question-mode {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 7px 11px;
+            font-size: 12px;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+        .vocab-test-shell-badge,
+        .vocab-result-badge {
+            background: #e0f2fe;
+            color: #075985;
+        }
+        .vocab-test-question-mode {
+            background: #eff6ff;
+            color: #1d4ed8;
+        }
+        .vocab-test-overview,
+        .vocab-feedback-overview,
+        .vocab-result-metrics,
+        .vocab-feedback-grid {
+            display: grid;
+            gap: 12px;
+        }
+        .vocab-test-overview,
+        .vocab-feedback-overview,
+        .vocab-result-metrics {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+        .vocab-feedback-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            margin-top: 8px;
+        }
+        .vocab-test-overview-item,
+        .vocab-feedback-overview-item,
+        .vocab-result-metric {
+            border-radius: 18px;
+            border: 1px solid #e2e8f0;
+            background: rgba(255, 255, 255, 0.92);
+            padding: 14px 16px;
+            min-height: 86px;
+        }
+        .vocab-test-overview-item .label,
+        .vocab-feedback-overview-item .label,
+        .vocab-result-metric .label {
+            display: block;
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .vocab-test-overview-item .value,
+        .vocab-feedback-overview-item .value,
+        .vocab-result-metric .value {
+            display: block;
+            color: #0f172a;
+            font-size: 28px;
+            line-height: 1.1;
+            font-weight: 850;
+        }
+        .vocab-test-overview-item .value.pending,
+        .vocab-feedback-overview-item .value.pending,
+        .vocab-result-metric .value.pending { color: #b45309; }
+        .vocab-feedback-overview-item .value.correct,
+        .vocab-result-metric .value.correct { color: #15803d; }
+        .vocab-feedback-overview-item .value.wrong,
+        .vocab-result-metric .value.wrong { color: #dc2626; }
+        .vocab-test-questions {
+            display: grid;
+            gap: 14px;
+            margin-top: 6px;
+        }
+        .vocab-test-question-card {
+            border: 1px solid #dbeafe;
+            border-radius: 20px;
+            background: #ffffff;
+            padding: 18px 18px 10px;
+            box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
+        }
+        .vocab-test-question-index {
+            color: #0369a1;
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+        .vocab-test-question-prompt {
+            color: #0f172a;
+            font-size: 18px;
+            line-height: 1.6;
+            font-weight: 700;
+        }
+        .vocab-test-submit-box {
+            margin-top: 18px;
+            padding: 18px 20px;
+            border: 1px dashed #bfdbfe;
+            border-radius: 20px;
+            background: #f8fbff;
+        }
+        .vocab-test-submit-title {
+            color: #0f172a;
+            font-size: 18px;
+            font-weight: 800;
+            margin-bottom: 6px;
+        }
+        .vocab-feedback-chip-wrap {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .vocab-feedback-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 7px 10px;
+            border-radius: 999px;
+            background: #eff6ff;
+            color: #1e3a8a;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .vocab-feedback-card {
+            border-radius: 20px;
+            padding: 16px 18px;
+            border: 1px solid #e2e8f0;
+            background: #ffffff;
+            box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
+        }
+        .vocab-feedback-card--wrong {
+            border-color: #fecaca;
+            background: linear-gradient(180deg, #fffefe 0%, #fff7f7 100%);
+        }
+        .vocab-feedback-card--correct {
+            border-color: #bbf7d0;
+            background: linear-gradient(180deg, #ffffff 0%, #f7fff9 100%);
+        }
+        .vocab-feedback-card-top {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .vocab-feedback-card-title {
+            color: #0f172a;
+            font-size: 18px;
+            font-weight: 800;
+            margin-bottom: 4px;
+        }
+        .vocab-feedback-card-mode {
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .vocab-feedback-card-pill {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+        .vocab-feedback-card-pill--wrong {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+        .vocab-feedback-card-pill--correct {
+            background: #dcfce7;
+            color: #15803d;
+        }
+        .vocab-feedback-answer-row {
+            display: grid;
+            grid-template-columns: 82px 1fr;
+            gap: 10px;
+            padding-top: 10px;
+            margin-top: 10px;
+            border-top: 1px solid rgba(148, 163, 184, 0.18);
+        }
+        .vocab-feedback-answer-label {
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .vocab-feedback-answer-value {
+            color: #0f172a;
+            font-size: 15px;
+            font-weight: 700;
+            line-height: 1.6;
+        }
+        @media (max-width: 900px) {
+            .vocab-test-overview,
+            .vocab-feedback-overview,
+            .vocab-result-metrics,
+            .vocab-feedback-grid {
+                grid-template-columns: 1fr;
+            }
+            .vocab-test-shell-header,
+            .vocab-result-header,
+            .vocab-test-question-head {
+                flex-direction: column;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _clean_feedback_text(value, fallback: str = "（未作答）") -> str:
     text = str(value or "").strip()
     if not text:
@@ -163,34 +424,66 @@ def _render_vocab_test_intro(payload_exists: bool, result_exists: bool):
 
 def _render_vocab_test_result_panel(result: dict):
     title, desc = build_test_result_summary(result)
+    results = result.get("results", [])
+    wrong_count = sum(1 for item in results if not item.get("is_correct"))
+    correct_count = sum(1 for item in results if item.get("is_correct"))
+    uncertain_count = sum(1 for item in results if item.get("is_uncertain"))
     if not result.get("persistence_ok", True):
         st.warning("本次检测分数已算出，但历史记录暂未成功保存。请稍后重试，或联系老师检查数据库配置。")
     st.markdown(
         f"""
-        <div class="student-home-card">
-            <div class="student-home-kicker">检测总结</div>
-            <div class="student-home-task-title">{title}</div>
-            <p class="student-home-task-desc">{desc}</p>
+        <div class="vocab-result-shell">
+            <div class="vocab-result-header">
+                <div>
+                    <div class="vocab-result-kicker">Result</div>
+                    <div class="vocab-result-title">{title}</div>
+                    <p class="vocab-result-desc">{desc}</p>
+                </div>
+                <span class="vocab-result-badge">本轮已完成</span>
+            </div>
+            <div class="vocab-result-metrics">
+                <div class="vocab-result-metric">
+                    <span class="label">得分</span>
+                    <span class="value">{result['score']} / {result['total']}</span>
+                </div>
+                <div class="vocab-result-metric">
+                    <span class="label">正确率</span>
+                    <span class="value">{result['accuracy']:.0%}</span>
+                </div>
+                <div class="vocab-result-metric">
+                    <span class="label">答错</span>
+                    <span class="value wrong">{wrong_count}</span>
+                </div>
+                <div class="vocab-result-metric">
+                    <span class="label">不确定</span>
+                    <span class="value pending">{uncertain_count}</span>
+                </div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    st.markdown("## 本次检测结果")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("得分", f"{result['score']} / {result['total']}")
-    with col2:
-        st.metric("正确率", f"{result['accuracy']:.0%}")
-    with col3:
+    action_col, info_col = st.columns([1, 2])
+    with action_col:
         if st.button("开始新一轮检测", key="restart_vocab_test_from_result", use_container_width=True):
             st.session_state.pop("student_test_result", None)
             st.rerun()
-    _render_test_feedback_blocks(result.get("results", []))
+    with info_col:
+        st.caption(f"本轮共 {len(results)} 题，答对 {correct_count} 题。")
+    _render_test_feedback_blocks(results)
 
 
 def _render_progress_test_launcher(student_id: int):
-    st.markdown("### 学习进度检测")
-    st.caption("适合处理当前学习中或待复习的词汇，直接进入一轮轻量检测。")
+    st.markdown(
+        """
+        <div class="vocab-launch-card">
+            <div class="vocab-launch-kicker">Progress Check</div>
+            <div class="vocab-launch-title">学习进度检测</div>
+            <p class="vocab-launch-desc">适合处理当前正在学习或等待复习的词，直接开始一轮轻量检测。</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     test_type = st.selectbox("检测类型", ["新词检测", "复习检测"], key="student_progress_test_type")
     test_mode = st.selectbox("作答方式", ["英译中", "中译英", "混合模式"], key="student_progress_test_mode")
@@ -208,8 +501,16 @@ def _render_progress_test_launcher(student_id: int):
 
 
 def _render_book_test_launcher(student_id: int):
-    st.markdown("### 词汇书抽词检测")
-    st.caption("适合从指定词汇书或单元直接开始，快速完成今天的词汇任务。")
+    st.markdown(
+        """
+        <div class="vocab-launch-card">
+            <div class="vocab-launch-kicker">Book Check</div>
+            <div class="vocab-launch-title">词汇书抽词检测</div>
+            <p class="vocab-launch-desc">适合从指定词汇书或单元直接开始，快速完成今天这一轮词汇任务。</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     books = dbs.get_all_word_books()
     if not books:
@@ -260,6 +561,7 @@ def _render_book_test_launcher(student_id: int):
 
 def render_vocab_test(student_id: int, *, render_section_anchor, render_section_focus_badge):
     render_section_anchor("vocab_test")
+    _render_vocab_test_styles()
     st.header("我的词汇检测")
     render_section_focus_badge("vocab_test")
     payload = st.session_state.get("student_test_payload")
