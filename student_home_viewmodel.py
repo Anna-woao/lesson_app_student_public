@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+import streamlit as st
+
 import db_student as dbs
 
 
@@ -327,8 +329,8 @@ def _build_history_task_cards(
     return cards[:3]
 
 
-def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
-    student_id = student["id"]
+@st.cache_data(ttl=20, show_spinner=False)
+def _build_student_home_viewmodel_cached(student_id: int, student_name: str) -> Dict[str, Any]:
     recent_lessons = dbs.get_student_recent_lessons(student_id, limit=5)
     learned_summary = dbs.get_student_learned_vocab_summary(student_id)
     book_progress = dbs.get_student_book_progress(student_id)
@@ -569,7 +571,7 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
         "dimensions": profile_payload.get("dimensions") or {},
     }
     viewmodel = StudentHomeViewModel(
-        student_name=student.get("name", "同学"),
+        student_name=student_name or "??",
         title_label=title_label,
         stage_label=stage_label,
         primary_task=primary_card.title,
@@ -596,3 +598,14 @@ def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
         history_summary=asdict(history_summary),
     )
     return asdict(viewmodel)
+
+
+def clear_student_home_viewmodel_cache() -> None:
+    _build_student_home_viewmodel_cached.clear()
+
+
+def build_student_home_viewmodel(student: Dict[str, Any]) -> Dict[str, Any]:
+    return _build_student_home_viewmodel_cached(
+        int(student["id"]),
+        str(student.get("name", "") or ""),
+    )
