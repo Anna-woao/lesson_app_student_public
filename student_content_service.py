@@ -47,20 +47,8 @@ def build_progress_page_data(student_id: int) -> dict[str, Any]:
             learning_count,
             review_count,
         ) = row
-        label = book_name if not volume_name else f"{book_name}（{volume_name}）"
+        label = book_name if not volume_name else f"{book_name} ({volume_name})"
         ratio = (learned_count / total_count) if total_count else 0.0
-        unit_rows = dbs.get_student_unit_progress(student_id, book_id)
-        units = [
-            {
-                "unit_id": unit_id,
-                "unit_name": unit_name,
-                "unit_order": unit_order,
-                "learned_count": unit_learned,
-                "total_count": unit_total,
-                "ratio": (unit_learned / unit_total) if unit_total else 0.0,
-            }
-            for unit_id, unit_name, unit_order, unit_learned, unit_total in unit_rows
-        ]
         books.append(
             {
                 "book_id": book_id,
@@ -73,13 +61,12 @@ def build_progress_page_data(student_id: int) -> dict[str, Any]:
                 "learning_count": learning_count,
                 "review_count": review_count,
                 "ratio": ratio,
-                "units": units,
             }
         )
         total_learned += learned_count
         total_vocab += total_count
         total_review += review_count
-        if total_count > 0:
+        if learned_count > 0:
             active_book_count += 1
 
     return {
@@ -89,6 +76,21 @@ def build_progress_page_data(student_id: int) -> dict[str, Any]:
         "total_vocab": total_vocab,
         "total_review": total_review,
     }
+
+
+def build_book_unit_progress_data(student_id: int, book_id: int) -> list[dict[str, Any]]:
+    unit_rows = dbs.get_student_unit_progress(student_id, book_id)
+    return [
+        {
+            "unit_id": unit_id,
+            "unit_name": unit_name,
+            "unit_order": unit_order,
+            "learned_count": unit_learned,
+            "total_count": unit_total,
+            "ratio": (unit_learned / unit_total) if unit_total else 0.0,
+        }
+        for unit_id, unit_name, unit_order, unit_learned, unit_total in unit_rows
+    ]
 
 
 def build_test_history_page_data(student_id: int, limit: int = 20) -> dict[str, Any]:
