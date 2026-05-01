@@ -7,7 +7,6 @@ import re
 import streamlit as st
 import streamlit.components.v1 as components
 
-import db_student as dbs
 from lesson_html_renderer import build_downloadable_lesson_html, build_lesson_plain_text
 from student_content_service import (
     build_book_unit_progress_data,
@@ -17,8 +16,9 @@ from student_content_service import (
     build_test_feedback_results,
     build_test_history_page_data,
 )
+from student_records_data import get_student_lesson_snapshot
 from student_ui_copy import format_progress_status_copy
-from student_vocab_test_view import _render_test_feedback_blocks
+from student_vocab_test_view import render_test_feedback_blocks
 
 
 def _sanitize_filename_part(text: str) -> str:
@@ -192,7 +192,7 @@ def render_lessons(student_id: int, *, render_section_anchor, render_section_foc
         auto_open_snapshot = next(
             (lesson for lesson in lessons if lesson.get("id") == auto_open_lesson_id),
             None,
-        ) or dbs.get_student_lesson_snapshot(student_id, auto_open_lesson_id)
+        ) or get_student_lesson_snapshot(student_id, auto_open_lesson_id)
         if auto_open_snapshot:
             _show_lesson_detail_dialog(student_id, auto_open_snapshot)
 
@@ -441,4 +441,4 @@ def render_test_history(student_id: int, *, render_section_anchor, render_sectio
             st.rerun()
 
         if is_expanded:
-            _render_test_feedback_blocks(build_test_feedback_results(record_id))
+            render_test_feedback_blocks(build_test_feedback_results(record_id))
