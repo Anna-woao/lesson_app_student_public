@@ -1,119 +1,64 @@
-"""学生端入口（含词汇检测作答区）"""
+"""?????????????????????"""
 
-from datetime import datetime
-from html import escape, unescape
+from html import escape
 import re
 
 import streamlit as st
 import streamlit.components.v1 as components
 
 import db_student as dbs
-from student_diagnosis_service import (
-    build_initial_diagnosis_definition,
-    evaluate_initial_diagnosis,
-)
 from lesson_html_renderer import build_downloadable_lesson_html, build_lesson_plain_text
 from student_home_viewmodel import build_student_home_viewmodel
-from student_ui_copy import (
-    build_test_result_summary,
-    format_progress_status_copy,
-)
 from student_initial_diagnosis_view import (
     activate_initial_diagnosis as _activate_initial_diagnosis_view,
     render_initial_diagnosis as _render_initial_diagnosis_view,
 )
-from student_vocab_test_view import render_vocab_test as _render_vocab_test_view
+from student_shell_view import (
+    SECTION_TO_PAGE,
+    render_dashboard_styles as _render_dashboard_styles,
+    render_focus_hint as _render_focus_hint,
+    render_light_status_section as _render_light_status_section,
+    render_logged_in_header as _render_logged_in_header,
+    render_page_hero as _render_page_hero,
+    render_profile_page as _render_profile_page_view,
+    render_section_anchor as _render_section_anchor,
+    render_section_focus_badge as _render_section_focus_badge,
+    render_top_navigation as _render_top_navigation_shell,
+    render_welcome_section as _render_welcome_section,
+)
+from student_ui_copy import build_test_result_summary, format_progress_status_copy
+from student_vocab_test_view import (
+    _render_test_feedback_blocks,
+    render_vocab_test as _render_vocab_test_view,
+)
 
-st.set_page_config(page_title="英语辅导系统｜学生端", layout="wide")
-st.title("英语辅导系统｜学生端")
-
-SECTION_LABELS = {
-    "home": "学习首页",
-    "task_pool": "学习任务池",
-    "initial_diagnosis": "首次诊断",
-    "profile_page": "我的成长画像",
-    "recent_lessons": "我的最近学案",
-    "learned_words": "我的已学单词",
-    "progress": "我的学习进度",
-    "vocab_test": "我的词汇检测",
-    "test_history": "我的检测记录",
-}
-
-SECTION_TO_PAGE = {
-    "home": "home",
-    "task_pool": "task_pool",
-    "profile_page": "profile_page",
-    "initial_diagnosis": "initial_diagnosis",
-    "vocab_test": "vocab_test",
-    "recent_lessons": "recent_lessons",
-    "learned_words": "learned_words",
-    "progress": "progress",
-    "test_history": "test_history",
-}
-
-NAV_ITEMS = [
-    ("home", "学习首页"),
-    ("task_pool", "学习任务池"),
-    ("initial_diagnosis", "首次诊断"),
-    ("vocab_test", "词汇检测"),
-    ("recent_lessons", "最近学案"),
-    ("learned_words", "已学单词"),
-    ("progress", "学习进度"),
-    ("test_history", "检测记录"),
-    ("profile_page", "成长画像"),
-]
-
-PAGE_META = {
-    "home": {
-        "eyebrow": "Learning Desk",
-        "title": "学习首页",
-        "description": "这里只保留今日驾驶舱视图，帮助学生快速确认状态、主任务和进入今天的学习节奏。",
-    },
-    "task_pool": {
-        "eyebrow": "Task Flow",
-        "title": "学习任务池",
-        "description": "这里专门承接今天要做的任务和可回看的历史内容，学生进入后只需要决定下一步做什么。",
-    },
-    "initial_diagnosis": {
-        "eyebrow": "Diagnosis",
-        "title": "首次诊断",
-        "description": "先用一轮轻量诊断确认当前起点，后续任务会根据结果自动收束到更合适的学习路径。",
-    },
-    "vocab_test": {
-        "eyebrow": "Vocabulary",
-        "title": "词汇检测",
-        "description": "直接开始词汇书检测或复习检测，把今天最适合先做的词汇任务一口气完成。",
-    },
-    "recent_lessons": {
-        "eyebrow": "Lessons",
-        "title": "最近学案",
-        "description": "这里集中回看最近学案和新词表，适合承接今天任务完成后的巩固练习。",
-    },
-    "learned_words": {
-        "eyebrow": "Vocabulary Log",
-        "title": "已学单词",
-        "description": "查看已经进入学习记录的词汇积累，帮助学生建立稳定的掌握感和阶段性成果感。",
-    },
-    "progress": {
-        "eyebrow": "Progress",
-        "title": "学习进度",
-        "description": "从词汇书和单元维度回看推进情况，判断今天更适合继续学习还是先做复习巩固。",
-    },
-    "test_history": {
-        "eyebrow": "History",
-        "title": "检测记录",
-        "description": "把历史检测结果放在同一处，方便学生回看正确率变化和最近一次答题反馈。",
-    },
-    "profile_page": {
-        "eyebrow": "Growth Profile",
-        "title": "成长画像",
-        "description": "这里展示诊断结果的浓缩视图，帮助学生理解当前阶段、成长重点和下一步方向。",
-    },
-}
+st.set_page_config(page_title="??????????", layout="wide")
+st.title("??????????")
 
 
-def _render_section_anchor(section_key: str):
-    st.markdown(f'<div id="section-{section_key}"></div>', unsafe_allow_html=True)
+def _render_login():
+    st.markdown("## ????")
+    st.caption("???????????????????")
+
+    with st.form("student_login_form", clear_on_submit=False):
+        login_account = st.text_input("??", key="student_login_account_input")
+        login_password = st.text_input("??", type="password", key="student_login_password_input")
+        submitted = st.form_submit_button("??")
+
+    if not submitted:
+        return
+
+    student = dbs.authenticate_student(login_account, login_password)
+    if not student:
+        st.error("????????????????")
+        return
+
+    st.session_state["student_login"] = student
+    st.session_state["student_current_page"] = "home"
+    st.session_state.pop("student_test_payload", None)
+    st.session_state.pop("student_test_result", None)
+    st.success(f"?????{student.get('name') or '??'}?")
+    st.rerun()
 
 
 def _set_current_page(page_key: str, focus_section: str | None = None):
@@ -143,6 +88,11 @@ def _render_focus_scroll():
     return
 
 
+def _render_top_navigation():
+    current_page = st.session_state.get("student_current_page", "home")
+    _render_top_navigation_shell(current_page, navigate_to_page=_navigate_to_page)
+
+
 def _start_progress_test_action(student_id: int, test_type: str, test_mode: str, test_count: int) -> bool:
     ok, payload = dbs.build_progress_test(student_id, test_type, test_mode, test_count)
     if not ok:
@@ -151,7 +101,7 @@ def _start_progress_test_action(student_id: int, test_type: str, test_mode: str,
 
     st.session_state.pop("student_test_result", None)
     st.session_state["student_test_payload"] = payload
-    st.session_state["student_test_source_label"] = f"学习进度检测：{test_type}"
+    st.session_state["student_test_source_label"] = f"???????{test_type}"
     _set_focus_section("vocab_test")
     return True
 
@@ -165,24 +115,18 @@ def _start_book_test_action(
     test_count: int,
 ) -> bool:
     if not book_id:
-        st.warning("当前任务还没有可用的词汇书入口，请先联系老师检查词汇书配置。")
+        st.warning("??????????????????????????????")
         return False
 
-    ok, payload = dbs.build_book_test(
-        student_id,
-        book_id,
-        unit_ids or [],
-        test_mode,
-        test_count,
-    )
+    ok, payload = dbs.build_book_test(student_id, book_id, unit_ids or [], test_mode, test_count)
     if not ok:
         st.warning(payload)
         return False
 
     st.session_state.pop("student_test_result", None)
     st.session_state["student_test_payload"] = payload
-    scope = "指定单元" if unit_ids else "整本词汇书"
-    st.session_state["student_test_source_label"] = f"词汇书检测：{book_label} / {scope}"
+    scope = "????" if unit_ids else "?????"
+    st.session_state["student_test_source_label"] = f"??????{book_label} / {scope}"
     _set_focus_section("vocab_test")
     return True
 
@@ -200,8 +144,8 @@ def _run_task_action(student_id: int, task_card: dict) -> bool:
     if action_type == "start_progress_test":
         return _start_progress_test_action(
             student_id,
-            action_params.get("test_type", "复习检测"),
-            action_params.get("test_mode", "混合模式"),
+            action_params.get("test_type", "????"),
+            action_params.get("test_mode", "????"),
             action_params.get("test_count", 25),
         )
 
@@ -209,9 +153,9 @@ def _run_task_action(student_id: int, task_card: dict) -> bool:
         return _start_book_test_action(
             student_id,
             action_params.get("book_id"),
-            action_params.get("book_label", "当前词汇书"),
+            action_params.get("book_label", "?????"),
             action_params.get("unit_ids", []),
-            action_params.get("test_mode", "混合模式"),
+            action_params.get("test_mode", "????"),
             action_params.get("test_count", 25),
         )
 
@@ -235,8 +179,6 @@ def _activate_initial_diagnosis(*, force_refresh: bool = False) -> None:
     _activate_initial_diagnosis_view(force_refresh=force_refresh)
 
 
-
-
 def _render_vocab_test(student_id: int):
     _render_vocab_test_view(
         student_id,
@@ -251,6 +193,74 @@ def _render_initial_diagnosis(student_id: int):
         render_section_anchor=_render_section_anchor,
         render_section_focus_badge=_render_section_focus_badge,
     )
+
+
+def _render_primary_task_section(home_data: dict):
+    task_cards = home_data.get("current_task_cards") or []
+    primary = next((card for card in task_cards if card.get("is_primary")), None)
+    primary = primary or (task_cards[0] if task_cards else {})
+    title = primary.get("title") or home_data.get("primary_task") or "?????????"
+    desc = primary.get("description") or "??????????????????????"
+    eta = primary.get("eta") or home_data.get("primary_task_eta") or "10 ??"
+    st.markdown(
+        f"""
+        <div class="student-home-card">
+            <div class="student-home-kicker">????? ? {escape(str(eta))}</div>
+            <div class="student-home-task-title">{escape(str(title))}</div>
+            <p class="student-home-task-desc">{escape(str(desc))}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("?????????", key="start_primary_task", use_container_width=True):
+        if primary and _run_task_action(st.session_state["student_login"]["id"], primary):
+            st.rerun()
+        _navigate_to_page("task_pool", focus_section="task_pool")
+
+
+def _render_task_pool_section(home_data: dict):
+    _render_section_anchor("task_pool")
+    _render_section_focus_badge("task_pool")
+    st.markdown("## ?????")
+    current_cards = home_data.get("current_task_cards") or []
+    history_cards = home_data.get("history_task_cards") or []
+
+    if current_cards:
+        st.markdown("### ???????")
+        for index, card in enumerate(current_cards, start=1):
+            st.markdown(
+                f"""
+                <div class="student-home-card">
+                    <div class="student-home-kicker">?? {index} ? {escape(str(card.get('eta', '????')))}</div>
+                    <div class="student-home-task-title">{escape(str(card.get('title', '????')))}</div>
+                    <p class="student-home-task-desc">{escape(str(card.get('description', '')))}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button("?????", key=f"student_current_task_{index}", use_container_width=True):
+                if _run_task_action(st.session_state["student_login"]["id"], card):
+                    st.rerun()
+    if history_cards:
+        st.markdown("### ?????")
+        for index, card in enumerate(history_cards, start=1):
+            st.markdown(
+                f"""
+                <div class="student-home-card">
+                    <div class="student-home-kicker">???? ? {escape(str(card.get('eta', '????')))}</div>
+                    <div class="student-home-task-title">{escape(str(card.get('title', '????')))}</div>
+                    <p class="student-home-task-desc">{escape(str(card.get('description', '')))}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button("?????", key=f"student_history_task_{index}", use_container_width=True):
+                if _run_task_action(st.session_state["student_login"]["id"], card):
+                    st.rerun()
+
+    if not current_cards and not history_cards:
+        st.info("??????????????????????????")
+
 
 def _render_home_page(home_data: dict):
     _set_current_page("home")
