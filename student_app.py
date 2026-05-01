@@ -355,8 +355,9 @@ def main():
     _render_logged_in_header(student)
     _render_dashboard_styles()
 
-    home_data = build_student_home_viewmodel(student)
     current_page = st.session_state.get("student_current_page", "home")
+    needs_home_data = current_page in {"home", "task_pool", "profile_page"}
+    home_data = build_student_home_viewmodel(student) if needs_home_data else {}
     _render_top_navigation()
     _render_page_hero(current_page)
 
