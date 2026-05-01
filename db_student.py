@@ -8,7 +8,6 @@ import hmac
 import random
 import re
 import secrets
-import unicodedata
 from typing import Dict, List, Optional, Tuple
 
 import streamlit as st
@@ -32,6 +31,12 @@ from student_records_data import (
     get_student_vocab_test_records,
     get_vocab_test_record_items,
     save_initial_diagnosis_result,
+)
+from student_vocab_domain_service import (
+    build_questions_from_vocab_rows,
+    grade_vocab_test_answer,
+    normalize_test_mode,
+    student_display_meaning,
 )
 
 
@@ -483,25 +488,7 @@ _SPACED_POS_FIXES = (
 
 
 def _student_display_meaning(raw_meaning: str) -> str:
-    text = str(raw_meaning or "").strip()
-    if not text:
-        return ""
-    for pattern, replacement in _SPACED_POS_FIXES:
-        text = pattern.sub(replacement, text)
-    while text:
-        match = _POS_PREFIX_PATTERN.match(text)
-        if not match:
-            break
-        text = text[match.end():].lstrip(_POS_SEPARATORS)
-
-    # A few imported meanings contain later POS labels glued to Chinese senses
-    # ("...因为prep.作为"). Strip labels from display/distractor text.
-    text = _POS_ANY_PATTERN.sub("；", text)
-    text = text.replace("&", "；")
-    text = re.sub(r"[；;]\s*[；;]+", "；", text)
-    text = re.sub(r"\s+", " ", text).strip(_POS_SEPARATORS)
-    return text or str(raw_meaning or "").strip()
-
+    return student_display_meaning(raw_meaning)
 
 def _fetch_vocab_detail_map(vocab_ids: List[int]) -> Dict[int, dict]:
     supabase = get_supabase_client()
@@ -739,7 +726,7 @@ def build_progress_test(student_id: int, test_type: str, test_mode: str, test_co
     rows = rows[:test_count]
 
     vocab_map = _fetch_vocab_map([r["vocab_item_id"] for r in rows if r.get("vocab_item_id") is not None])
-    questions = _build_questions_from_vocab_map(vocab_map, rows, test_mode)
+    questions = build_questions_from_vocab_rows(vocab_map, rows, test_mode)
     payload = {
         "source_type": "progress",
         "source_book_id": None,
@@ -813,7 +800,7 @@ def build_book_test(
     vocab_map = _fetch_vocab_map(
         [row["vocab_item_id"] for row in deduped_rows if row.get("vocab_item_id") is not None]
     )
-    questions = _build_questions_from_vocab_map(vocab_map, deduped_rows, test_mode)
+    questions = build_questions_from_vocab_rows(vocab_map, deduped_rows, test_mode)
 
     payload = {
         "source_type": "book",
@@ -832,80 +819,18 @@ def build_book_test(
 
 
 def _build_questions_from_vocab_map(vocab_map, rows, test_mode: str):
-    all_meanings = []
-    for _, raw_meaning in vocab_map.values():
-        display_meaning = _student_display_meaning(raw_meaning)
-        if display_meaning and display_meaning not in all_meanings:
-            all_meanings.append(display_meaning)
-    questions = []
-
-    for row in rows:
-        vocab_item_id = row.get("vocab_item_id")
-        word, raw_meaning = vocab_map.get(vocab_item_id, ("", ""))
-        if not word:
-            continue
-        meaning = _student_display_meaning(raw_meaning)
-        if not meaning:
-            continue
-
-        one_mode = random.choice(["英译中", "中译英"]) if test_mode == "混合模式" else test_mode
-
-        q = {
-            "vocab_item_id": vocab_item_id,
-            "word": word,
-            "meaning": meaning,
-            "raw_meaning": raw_meaning,
-            "mode": one_mode,
-            "source_book_id": row.get("book_id") or row.get("first_source_book_id"),
-            "source_unit_id": row.get("unit_id") or row.get("first_source_unit_id"),
-        }
-
-        if one_mode == "英译中":
-            distractors = [m for m in all_meanings if m and m != meaning]
-            random.shuffle(distractors)
-            options = [meaning] + distractors[:3]
-            options = list(dict.fromkeys(options))
-            random.shuffle(options)
-            options.append("我不确定")
-            q["options"] = options
-
-        questions.append(q)
-
-    return questions
-
+    return build_questions_from_vocab_rows(vocab_map, rows, test_mode)
 
 def _normalize_test_mode(mode: str) -> str:
-    normalized = str(mode or "").strip()
-    if normalized == "英译中":
-        return "英译中"
-    if normalized == "中译英":
-        return "中译英"
-    return normalized
-
+    return normalize_test_mode(mode)
 
 def _normalize_vocab_answer_text(text: str) -> str:
-    normalized = unicodedata.normalize("NFKC", str(text or ""))
-    normalized = normalized.strip().casefold()
-    normalized = re.sub(r"\s+", " ", normalized)
-    normalized = normalized.strip(".,;:!?\"'()[]{}<>`~，。；：！？“”‘’（）【】《》、")
-    return normalized
+    from student_vocab_domain_service import normalize_vocab_answer_text
 
+    return normalize_vocab_answer_text(text)
 
 def _grade_vocab_test_answer(question: dict, user_answer: str) -> tuple[bool, bool]:
-    mode = _normalize_test_mode(question.get("mode"))
-    raw_answer = str(user_answer or "").strip()
-    normalized_answer = _normalize_vocab_answer_text(raw_answer)
-    is_uncertain = normalized_answer == _normalize_vocab_answer_text("我不确定")
-
-    if mode == "英译中":
-        expected_answer = _normalize_vocab_answer_text(question.get("meaning") or "")
-        is_correct = (not is_uncertain) and normalized_answer == expected_answer
-        return is_correct, is_uncertain
-
-    expected_word = _normalize_vocab_answer_text(question.get("word") or "")
-    is_correct = normalized_answer == expected_word
-    return is_correct, is_uncertain
-
+    return grade_vocab_test_answer(question, user_answer)
 
 def submit_student_test(student_id: int, payload: dict, user_answers: dict, source_label: str):
     results = []
@@ -914,9 +839,9 @@ def submit_student_test(student_id: int, payload: dict, user_answers: dict, sour
 
     for q in payload["questions"]:
         vocab_item_id = q["vocab_item_id"]
-        mode = _normalize_test_mode(q.get("mode"))
+        mode = normalize_test_mode(q.get("mode"))
         user_answer = str(user_answers.get(vocab_item_id, "") or "").strip()
-        is_correct, is_uncertain = _grade_vocab_test_answer(q, user_answer)
+        is_correct, is_uncertain = grade_vocab_test_answer(q, user_answer)
 
         if is_correct:
             score += 1
