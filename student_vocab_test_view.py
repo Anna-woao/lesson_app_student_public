@@ -5,7 +5,13 @@ import re
 
 import streamlit as st
 
-import db_student as dbs
+from db_student import (
+    build_book_test,
+    build_progress_test,
+    get_all_word_books,
+    get_units_by_book,
+    submit_student_test,
+)
 from student_ui_copy import build_test_result_summary
 
 
@@ -329,7 +335,7 @@ def _render_vocab_feedback_grid(results, empty_message: str, card_tone: str):
     st.markdown(f'<div class="vocab-feedback-grid">{"".join(cards_html)}</div>', unsafe_allow_html=True)
 
 
-def _render_test_feedback_blocks(results):
+def render_test_feedback_blocks(results):
     if not results:
         st.info("当前没有可展示的检测反馈。")
         return
@@ -475,7 +481,7 @@ def _render_vocab_test_result_panel(result: dict):
             st.rerun()
     with info_col:
         st.caption(f"本轮共 {len(results)} 题，答对 {correct_count} 题。")
-    _render_test_feedback_blocks(results)
+    render_test_feedback_blocks(results)
 
 
 def _render_progress_test_launcher(student_id: int):
@@ -495,7 +501,7 @@ def _render_progress_test_launcher(student_id: int):
     test_count = st.selectbox("本次检测题数", [15, 25, 35, 45, 60], index=1, key="student_progress_test_count")
 
     if st.button("开始学习进度检测", key="start_student_progress_test", use_container_width=True):
-        ok, payload = dbs.build_progress_test(student_id, test_type, test_mode, test_count)
+        ok, payload = build_progress_test(student_id, test_type, test_mode, test_count)
         if ok:
             st.session_state["student_test_payload"] = payload
             st.session_state["student_test_source_label"] = f"学习进度检测：{test_type}"
@@ -517,7 +523,7 @@ def _render_book_test_launcher(student_id: int):
         unsafe_allow_html=True,
     )
 
-    books = dbs.get_all_word_books()
+    books = get_all_word_books()
     if not books:
         st.info("当前还没有词汇书。")
         return
@@ -526,7 +532,7 @@ def _render_book_test_launcher(student_id: int):
     selected_book_label = st.selectbox("选择词汇书", list(book_options.keys()), key="student_book_test_book")
     selected_book_id = book_options[selected_book_label]
 
-    units = dbs.get_units_by_book(selected_book_id)
+    units = get_units_by_book(selected_book_id)
     unit_name_to_id = {unit_name: unit_id for unit_id, unit_name, _unit_order in units}
     selected_unit_labels = st.multiselect(
         "选择单元（可多选）；如果一个都不选，默认检测整本词汇书",
@@ -545,7 +551,7 @@ def _render_book_test_launcher(student_id: int):
     test_count = st.selectbox("本次检测题数", [15, 25, 35, 45, 60], index=1, key="student_book_test_count")
 
     if st.button("开始词汇书检测", key="start_student_book_test", use_container_width=True):
-        ok, payload = dbs.build_book_test(
+        ok, payload = build_book_test(
             student_id,
             selected_book_id,
             selected_unit_ids,
@@ -677,7 +683,7 @@ def render_vocab_test(student_id: int, *, render_section_anchor, render_section_
         submitted = st.form_submit_button("提交检测", type="primary", use_container_width=True)
 
     if submitted:
-        result = dbs.submit_student_test(
+        result = submit_student_test(
             student_id=student_id,
             payload=payload,
             user_answers=user_answers,
