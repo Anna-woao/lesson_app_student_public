@@ -608,7 +608,7 @@ def render_initial_diagnosis(student_id: int, *, render_section_anchor, render_s
 
         result = evaluate_initial_diagnosis(answers_by_module, definition=definition)
         try:
-            dbs.save_initial_diagnosis_result(
+            save_initial_diagnosis_result(
                 student_id,
                 result,
                 module_answers=answers_by_module,
