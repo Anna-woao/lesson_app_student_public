@@ -92,7 +92,7 @@ def _render_vocab_test_styles():
             grid-template-columns: repeat(4, minmax(0, 1fr));
         }
         .vocab-feedback-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns: repeat(4, minmax(0, 1fr));
             margin-top: 8px;
         }
         .vocab-test-overview-item,
@@ -250,6 +250,11 @@ def _render_vocab_test_styles():
             font-size: 15px;
             font-weight: 700;
             line-height: 1.6;
+        }
+        @media (max-width: 1200px) {
+            .vocab-feedback-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
         }
         @media (max-width: 900px) {
             .vocab-test-overview,
