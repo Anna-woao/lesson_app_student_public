@@ -5,10 +5,16 @@ from __future__ import annotations
 from typing import Any
 
 import db_student as dbs
+from student_records_data import (
+    get_student_learned_vocab_summary,
+    get_student_recent_lesson_snapshots,
+    get_student_vocab_test_records,
+    get_vocab_test_record_items,
+)
 
 
 def build_lessons_page_data(student_id: int, limit: int = 10) -> dict[str, Any]:
-    lessons = dbs.get_student_recent_lesson_snapshots(student_id, limit=limit)
+    lessons = get_student_recent_lesson_snapshots(student_id, limit=limit)
     latest_lesson = lessons[0] if lessons else None
     return {
         "lessons": lessons,
@@ -18,7 +24,7 @@ def build_lessons_page_data(student_id: int, limit: int = 10) -> dict[str, Any]:
 
 
 def build_learned_words_page_data(student_id: int) -> dict[str, Any]:
-    summary = dbs.get_student_learned_vocab_summary(student_id)
+    summary = get_student_learned_vocab_summary(student_id)
     lesson_groups = summary.get("lesson_groups", [])
     return {
         "total_unique_words": summary.get("total_unique_words", 0),
@@ -94,7 +100,7 @@ def build_book_unit_progress_data(student_id: int, book_id: int) -> list[dict[st
 
 
 def build_test_history_page_data(student_id: int, limit: int = 20) -> dict[str, Any]:
-    rows = dbs.get_student_vocab_test_records(student_id, limit=limit)
+    rows = get_student_vocab_test_records(student_id, limit=limit)
     records = []
     for row in rows:
         (
@@ -141,7 +147,7 @@ def build_test_history_page_data(student_id: int, limit: int = 20) -> dict[str, 
 
 
 def build_test_feedback_results(test_record_id: int) -> list[dict[str, Any]]:
-    item_rows = dbs.get_vocab_test_record_items(test_record_id)
+    item_rows = get_vocab_test_record_items(test_record_id)
     return [
         {
             "vocab_item_id": vocab_item_id,
