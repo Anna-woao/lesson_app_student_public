@@ -7,15 +7,15 @@ from html import escape
 import streamlit as st
 
 SECTION_LABELS = {
-    "home": "????",
-    "task_pool": "?????",
-    "initial_diagnosis": "????",
-    "profile_page": "????",
-    "recent_lessons": "????",
-    "learned_words": "????",
-    "progress": "????",
-    "vocab_test": "????",
-    "test_history": "????",
+    "home": "学习首页",
+    "task_pool": "学习任务池",
+    "initial_diagnosis": "首次诊断",
+    "profile_page": "成长画像",
+    "recent_lessons": "最近学案",
+    "learned_words": "已学单词",
+    "progress": "学习进度",
+    "vocab_test": "词汇检测",
+    "test_history": "检测记录",
 }
 
 SECTION_TO_PAGE = {
@@ -31,62 +31,62 @@ SECTION_TO_PAGE = {
 }
 
 NAV_ITEMS = [
-    ("home", "????"),
-    ("task_pool", "?????"),
-    ("initial_diagnosis", "????"),
-    ("vocab_test", "????"),
-    ("recent_lessons", "????"),
-    ("learned_words", "????"),
-    ("progress", "????"),
-    ("test_history", "????"),
-    ("profile_page", "????"),
+    ("home", "学习首页"),
+    ("task_pool", "学习任务池"),
+    ("initial_diagnosis", "首次诊断"),
+    ("vocab_test", "词汇检测"),
+    ("recent_lessons", "最近学案"),
+    ("learned_words", "已学单词"),
+    ("progress", "学习进度"),
+    ("test_history", "检测记录"),
+    ("profile_page", "成长画像"),
 ]
 
 PAGE_META = {
     "home": {
         "eyebrow": "Learning Desk",
-        "title": "????",
-        "description": "????????????????????????????????????",
+        "title": "学习首页",
+        "description": "这里只保留今日驾驶舱，帮助学生快速确认状态、主任务和进入今天的学习节奏。",
     },
     "task_pool": {
         "eyebrow": "Task Flow",
-        "title": "?????",
-        "description": "?????????????????????????????????????",
+        "title": "学习任务池",
+        "description": "这里只承接今天要做的任务和可回看的历史内容，进入后只需要决定下一步做什么。",
     },
     "initial_diagnosis": {
         "eyebrow": "Diagnosis",
-        "title": "????",
-        "description": "??????????????????????????????????",
+        "title": "首次诊断",
+        "description": "先用一轮轻量诊断确认当前起点，后续任务会自动收束到更适合的学习路径。",
     },
     "vocab_test": {
         "eyebrow": "Vocabulary",
-        "title": "????",
-        "description": "?????????????????????????????????",
+        "title": "词汇检测",
+        "description": "直接开始词汇检测或复习检测，把今天最适合先做的词汇任务一口气完成。",
     },
     "recent_lessons": {
         "eyebrow": "Lessons",
-        "title": "????",
-        "description": "???????????????????????????????",
+        "title": "最近学案",
+        "description": "集中回看最近学案和配套词表，适合承接今日任务完成后的巩固练习。",
     },
     "learned_words": {
         "eyebrow": "Vocabulary Log",
-        "title": "????",
-        "description": "???????????????????????????????",
+        "title": "已学单词",
+        "description": "查看已经进入学习记录的词汇积累，建立稳定的掌握感和阶段成果感。",
     },
     "progress": {
         "eyebrow": "Progress",
-        "title": "????",
-        "description": "????????????????????????????????????",
+        "title": "学习进度",
+        "description": "从词汇书和单元维度回看推进情况，判断今天更适合继续学习还是先做复习巩固。",
     },
     "test_history": {
         "eyebrow": "History",
-        "title": "????",
-        "description": "????????????????????????????????",
+        "title": "检测记录",
+        "description": "把历史检测结果放在同一处，方便回看正确率变化和最近一次答题反馈。",
     },
     "profile_page": {
         "eyebrow": "Growth Profile",
-        "title": "????",
-        "description": "??????????????????????????????????",
+        "title": "成长画像",
+        "description": "这里展示诊断结果的浓缩视图，帮助理解当前阶段、成长重点和下一步方向。",
     },
 }
 
@@ -122,14 +122,6 @@ def render_dashboard_styles() -> None:
             padding: 5px 11px; color: #075985; background: #e0f2fe;
             font-size: 12px; font-weight: 750; margin-bottom: 8px;
         }
-        .student-profile-grid {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 12px; margin-top: 12px;
-        }
-        .student-profile-pill {
-            display: inline-flex; align-items: center; padding: 7px 12px; border-radius: 999px;
-            background: #eff6ff; color: #1d4ed8; font-size: 13px; font-weight: 700; margin: 4px 8px 0 0;
-        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -139,13 +131,10 @@ def render_dashboard_styles() -> None:
 def render_logged_in_header(student: dict) -> None:
     col_left, col_right = st.columns([3, 1])
     with col_left:
-        st.caption(f"?????{student.get('name', '??')} ? {student.get('grade', '')}")
+        st.caption(f"当前学生：{student.get('name', '同学')} · {student.get('grade', '')}")
     with col_right:
-        if st.button("????", key="student_logout_btn", use_container_width=True):
-            keys_to_clear = [
-                key for key in st.session_state.keys()
-                if key.startswith("student_") or key == "student_login"
-            ]
+        if st.button("退出登录", key="student_logout_btn", use_container_width=True):
+            keys_to_clear = [key for key in st.session_state.keys() if key.startswith("student_") or key == "student_login"]
             for key in keys_to_clear:
                 st.session_state.pop(key, None)
             st.rerun()
@@ -155,9 +144,7 @@ def render_top_navigation(current_page: str, navigate_to_page) -> None:
     st.markdown('<div class="student-top-nav">', unsafe_allow_html=True)
     columns = st.columns(5)
     for index, (page_key, label) in enumerate(NAV_ITEMS):
-        button_label = label
-        if current_page == page_key:
-            button_label = f"? {label}"
+        button_label = f"• {label}" if current_page == page_key else label
         with columns[index % len(columns)]:
             if st.button(button_label, key=f"student_nav_{page_key}", use_container_width=True):
                 navigate_to_page(page_key)
@@ -180,13 +167,13 @@ def render_page_hero(current_page: str) -> None:
 
 def render_section_focus_badge(section_key: str) -> None:
     if st.session_state.get("student_home_focus_section") == section_key:
-        st.markdown('<span class="student-focus-badge">??????</span>', unsafe_allow_html=True)
+        st.markdown('<span class="student-focus-badge">当前定位模块</span>', unsafe_allow_html=True)
 
 
 def render_focus_hint() -> None:
     focus_section = st.session_state.pop("student_home_focus_section", None)
     if focus_section:
-        st.info(f"???????{SECTION_LABELS.get(focus_section, focus_section)}")
+        st.info(f"已为你切换到：{SECTION_LABELS.get(focus_section, focus_section)}")
 
 
 def render_welcome_section(home_data: dict) -> None:
@@ -194,8 +181,8 @@ def render_welcome_section(home_data: dict) -> None:
         f"""
         <div class="student-home-card">
             <div class="student-home-kicker">{escape(str(home_data.get("title_label", "Learning")))}</div>
-            <div class="student-home-task-title">{escape(str(home_data.get("student_name", "??")))}????????</div>
-            <p class="student-home-subtitle">???{escape(str(home_data.get("stage_label", "????")))}</p>
+            <div class="student-home-task-title">{escape(str(home_data.get("student_name", "同学")))}，今天从这里开始</div>
+            <p class="student-home-subtitle">阶段：{escape(str(home_data.get("stage_label", "准备起步")))}</p>
             <p class="student-home-task-desc">{escape(str(home_data.get("growth_feedback", "")))}</p>
         </div>
         """,
@@ -206,11 +193,11 @@ def render_welcome_section(home_data: dict) -> None:
 def render_light_status_section(home_data: dict) -> None:
     col1, col2 = st.columns(2)
     with col1:
-        st.metric("?????", f"{float(home_data.get('weekly_completion_ratio') or 0):.0%}")
+        st.metric("本周完成度", f"{float(home_data.get('weekly_completion_ratio') or 0):.0%}")
     with col2:
-        st.metric("????", f"{int(home_data.get('streak_days') or 0)} ?")
+        st.metric("连续学习", f"{int(home_data.get('streak_days') or 0)} 天")
     modules = home_data.get("unlocked_modules") or []
-    st.caption("??????" + (" / ".join(modules) if modules else "??????????"))
+    st.caption("已解锁模块：" + (" / ".join(modules) if modules else "完成任务后会逐步开启"))
 
 
 def _render_profile_item(label: str, value: str) -> None:
@@ -218,7 +205,7 @@ def _render_profile_item(label: str, value: str) -> None:
         f"""
         <div class="student-home-card">
             <div class="student-home-kicker">{escape(label)}</div>
-            <div class="student-home-task-title">{escape(value or '???')}</div>
+            <div class="student-home-task-title">{escape(value or '待生成')}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -227,17 +214,17 @@ def _render_profile_item(label: str, value: str) -> None:
 
 def render_profile_page(home_data: dict) -> None:
     diagnosis = home_data.get("diagnosis_summary") or {}
-    st.header("??????")
+    st.header("我的成长画像")
     if not diagnosis.get("has_diagnosis"):
-        st.info("??????????????????????")
+        st.info("完成首次诊断后，这里会展示更完整的成长画像。")
         return
 
     st.markdown(
         f"""
         <div class="student-home-card">
-            <div class="student-home-kicker">????</div>
-            <div class="student-home-task-title">{escape(str(diagnosis.get('title_label') or home_data.get('title_label', '????')))}</div>
-            <p class="student-home-subtitle">?????{escape(str(diagnosis.get('stage_label') or home_data.get('stage_label', '????')))}</p>
+            <div class="student-home-kicker">当前画像</div>
+            <div class="student-home-task-title">{escape(str(diagnosis.get('title_label') or home_data.get('title_label', '成长画像')))}</div>
+            <p class="student-home-subtitle">当前阶段：{escape(str(diagnosis.get('stage_label') or home_data.get('stage_label', '准备起步')))}</p>
             <p class="student-home-task-desc">{escape(str(home_data.get('growth_feedback', '')))}</p>
         </div>
         """,
@@ -246,12 +233,12 @@ def render_profile_page(home_data: dict) -> None:
 
     grid_cols = st.columns(2)
     items = [
-        ("?????", str(diagnosis.get("vocab_band") or "???")),
-        ("????", str(diagnosis.get("reading_profile") or "???")),
-        ("????", str(diagnosis.get("grammar_gap") or "???")),
-        ("????", str(diagnosis.get("writing_profile") or "???")),
-        ("????", str(diagnosis.get("growth_focus") or "???")),
-        ("????", str(diagnosis.get("suggested_track") or "???")),
+        ("词汇量区间", str(diagnosis.get("vocab_band") or "待生成")),
+        ("阅读画像", str(diagnosis.get("reading_profile") or "待生成")),
+        ("语法缺口", str(diagnosis.get("grammar_gap") or "待生成")),
+        ("写作画像", str(diagnosis.get("writing_profile") or "待生成")),
+        ("成长重点", str(diagnosis.get("growth_focus") or "待生成")),
+        ("建议轨道", str(diagnosis.get("suggested_track") or "待生成")),
     ]
     for index, (label, value) in enumerate(items):
         with grid_cols[index % 2]:
