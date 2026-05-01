@@ -13,6 +13,14 @@ from typing import Any, Dict, List, Optional
 import streamlit as st
 
 import db_student as dbs
+from student_records_data import (
+    get_latest_diagnosis_record,
+    get_latest_profile_snapshot,
+    get_student_activity_dates,
+    get_student_learned_vocab_summary,
+    get_student_recent_lessons,
+    get_student_vocab_test_records,
+)
 
 
 @dataclass
@@ -331,13 +339,13 @@ def _build_history_task_cards(
 
 @st.cache_data(ttl=20, show_spinner=False)
 def _build_student_home_viewmodel_cached(student_id: int, student_name: str) -> Dict[str, Any]:
-    recent_lessons = dbs.get_student_recent_lessons(student_id, limit=5)
-    learned_summary = dbs.get_student_learned_vocab_summary(student_id)
+    recent_lessons = get_student_recent_lessons(student_id, limit=5)
+    learned_summary = get_student_learned_vocab_summary(student_id)
     book_progress = dbs.get_student_book_progress(student_id)
-    test_records = dbs.get_student_vocab_test_records(student_id, limit=10)
-    activity_dates_raw = dbs.get_student_activity_dates(student_id, days=30)
-    latest_diagnosis = dbs.get_latest_diagnosis_record(student_id)
-    latest_snapshot = dbs.get_latest_profile_snapshot(student_id)
+    test_records = get_student_vocab_test_records(student_id, limit=10)
+    activity_dates_raw = get_student_activity_dates(student_id, days=30)
+    latest_diagnosis = get_latest_diagnosis_record(student_id)
+    latest_snapshot = get_latest_profile_snapshot(student_id)
 
     learned_vocab_count = learned_summary.get("total_unique_words", 0)
     latest_accuracy = test_records[0][9] if test_records else None
