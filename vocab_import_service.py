@@ -8,7 +8,7 @@ from typing import Any
 
 from openpyxl import load_workbook
 
-from supabase_client import get_admin_supabase_client, get_supabase_client
+from supabase_client import get_admin_supabase_client
 
 
 _POS_ALIASES = {
