@@ -20,7 +20,6 @@ from student_vocab_domain_service import (
     build_questions_from_vocab_rows,
     grade_vocab_test_answer,
     normalize_test_mode,
-    student_display_meaning,
 )
 
 
@@ -582,7 +581,6 @@ def _sync_test_results_to_progress(student_id: int, payload: dict, results: List
             continue
 
         current_row = progress_rows_map.get(vocab_item_id) or {}
-        current_status = current_row.get("status", "learning")
         current_review_count = int(current_row.get("review_count") or 0)
         current_error_count = int(current_row.get("error_count") or 0)
         current_memory_score = float(current_row.get("memory_score") or 3.0)
