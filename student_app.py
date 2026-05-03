@@ -8,10 +8,9 @@ import streamlit as st
 
 import db_student as dbs
 from student_content_views import (
-    render_learned_words as _render_learned_words_view,
     render_lessons as _render_lessons_view,
+    render_my_vocab as _render_my_vocab_view,
     render_progress as _render_progress_view,
-    render_test_history as _render_test_history_view,
 )
 from student_home_viewmodel import build_student_home_viewmodel
 from student_initial_diagnosis_view import (
@@ -31,8 +30,6 @@ from student_shell_view import (
     render_top_navigation as _render_top_navigation_shell,
     render_welcome_section as _render_welcome_section,
 )
-from student_vocab_test_view import render_vocab_test as _render_vocab_test_view
-
 st.set_page_config(page_title="英语辅导系统｜学生端", layout="wide")
 st.title("英语辅导系统｜学生端")
 
@@ -176,14 +173,6 @@ def _activate_initial_diagnosis(*, force_refresh: bool = False) -> None:
     _activate_initial_diagnosis_view(force_refresh=force_refresh)
 
 
-def _render_vocab_test(student_id: int):
-    _render_vocab_test_view(
-        student_id,
-        render_section_anchor=_render_section_anchor,
-        render_section_focus_badge=_render_section_focus_badge,
-    )
-
-
 def _render_initial_diagnosis(student_id: int):
     _render_initial_diagnosis_view(
         student_id,
@@ -313,14 +302,6 @@ def _render_lessons(student_id: int):
     )
 
 
-def _render_learned_words(student_id: int):
-    _render_learned_words_view(
-        student_id,
-        render_section_anchor=_render_section_anchor,
-        render_section_focus_badge=_render_section_focus_badge,
-    )
-
-
 def _render_progress(student_id: int):
     _render_progress_view(
         student_id,
@@ -329,8 +310,8 @@ def _render_progress(student_id: int):
     )
 
 
-def _render_test_history(student_id: int):
-    _render_test_history_view(
+def _render_my_vocab(student_id: int):
+    _render_my_vocab_view(
         student_id,
         render_section_anchor=_render_section_anchor,
         render_section_focus_badge=_render_section_focus_badge,
@@ -367,16 +348,12 @@ def main():
         _render_profile_page(home_data)
     elif current_page == "initial_diagnosis":
         _render_initial_diagnosis(student_id)
-    elif current_page == "vocab_test":
-        _render_vocab_test(student_id)
+    elif current_page in {"my_vocab", "vocab_test", "learned_words", "test_history"}:
+        _render_my_vocab(student_id)
     elif current_page == "recent_lessons":
         _render_lessons(student_id)
-    elif current_page == "learned_words":
-        _render_learned_words(student_id)
     elif current_page == "progress":
         _render_progress(student_id)
-    elif current_page == "test_history":
-        _render_test_history(student_id)
     else:
         _render_home_page(home_data)
 
