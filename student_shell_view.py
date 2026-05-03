@@ -9,11 +9,12 @@ import streamlit as st
 SECTION_LABELS = {
     "home": "学习首页",
     "task_pool": "学习任务池",
+    "my_vocab": "我的词汇",
     "initial_diagnosis": "首次诊断",
-    "profile_page": "成长画像",
     "recent_lessons": "最近学案",
-    "learned_words": "已学单词",
     "progress": "学习进度",
+    "profile_page": "成长画像",
+    "learned_words": "已学单词",
     "vocab_test": "词汇检测",
     "test_history": "检测记录",
 }
@@ -21,24 +22,23 @@ SECTION_LABELS = {
 SECTION_TO_PAGE = {
     "home": "home",
     "task_pool": "task_pool",
-    "profile_page": "profile_page",
+    "my_vocab": "my_vocab",
     "initial_diagnosis": "initial_diagnosis",
-    "vocab_test": "vocab_test",
     "recent_lessons": "recent_lessons",
-    "learned_words": "learned_words",
     "progress": "progress",
-    "test_history": "test_history",
+    "profile_page": "profile_page",
+    "learned_words": "my_vocab",
+    "vocab_test": "my_vocab",
+    "test_history": "my_vocab",
 }
 
 NAV_ITEMS = [
     ("home", "学习首页"),
     ("task_pool", "学习任务池"),
     ("initial_diagnosis", "首次诊断"),
-    ("vocab_test", "词汇检测"),
+    ("my_vocab", "我的词汇"),
     ("recent_lessons", "最近学案"),
-    ("learned_words", "已学单词"),
     ("progress", "学习进度"),
-    ("test_history", "检测记录"),
     ("profile_page", "成长画像"),
 ]
 
@@ -46,47 +46,37 @@ PAGE_META = {
     "home": {
         "eyebrow": "Learning Desk",
         "title": "学习首页",
-        "description": "这里只保留今日驾驶舱，帮助学生快速确认状态、主任务和进入今天的学习节奏。",
+        "description": "这里先收住今天最值得做的任务，帮助你快速确认状态、进入学习节奏。",
     },
     "task_pool": {
         "eyebrow": "Task Flow",
         "title": "学习任务池",
-        "description": "这里只承接今天要做的任务和可回看的历史内容，进入后只需要决定下一步做什么。",
+        "description": "今天要做什么、做完后看什么，都集中放在这里，不需要来回切换页面。",
     },
     "initial_diagnosis": {
         "eyebrow": "Diagnosis",
         "title": "首次诊断",
-        "description": "先用一轮轻量诊断确认当前起点，后续任务会自动收束到更适合的学习路径。",
+        "description": "先用一轮轻量诊断找到当前起点，后续任务会更贴近你的真实水平。",
     },
-    "vocab_test": {
+    "my_vocab": {
         "eyebrow": "Vocabulary",
-        "title": "词汇检测",
-        "description": "直接开始词汇检测或复习检测，把今天最适合先做的词汇任务一口气完成。",
+        "title": "我的词汇",
+        "description": "把已学单词、词汇检测和检测记录放在同一个入口，方便连续查看和练习。",
     },
     "recent_lessons": {
         "eyebrow": "Lessons",
         "title": "最近学案",
-        "description": "集中回看最近学案和配套词表，适合承接今日任务完成后的巩固练习。",
-    },
-    "learned_words": {
-        "eyebrow": "Vocabulary Log",
-        "title": "已学单词",
-        "description": "查看已经进入学习记录的词汇积累，建立稳定的掌握感和阶段成果感。",
+        "description": "在这里回看最近学案、完整内容和本次学案的新词表。",
     },
     "progress": {
         "eyebrow": "Progress",
         "title": "学习进度",
-        "description": "从词汇书和单元维度回看推进情况，判断今天更适合继续学习还是先做复习巩固。",
-    },
-    "test_history": {
-        "eyebrow": "History",
-        "title": "检测记录",
-        "description": "把历史检测结果放在同一处，方便回看正确率变化和最近一次答题反馈。",
+        "description": "从词汇书和单元两个层面看进度，判断今天更适合继续学习还是先复习。",
     },
     "profile_page": {
         "eyebrow": "Growth Profile",
         "title": "成长画像",
-        "description": "这里展示诊断结果的浓缩视图，帮助理解当前阶段、成长重点和下一步方向。",
+        "description": "这里会展示诊断结果和阶段画像，帮助你理解自己的学习重点。",
     },
 }
 
@@ -142,7 +132,7 @@ def render_logged_in_header(student: dict) -> None:
 
 def render_top_navigation(current_page: str, navigate_to_page) -> None:
     st.markdown('<div class="student-top-nav">', unsafe_allow_html=True)
-    columns = st.columns(5)
+    columns = st.columns(4)
     for index, (page_key, label) in enumerate(NAV_ITEMS):
         button_label = f"• {label}" if current_page == page_key else label
         with columns[index % len(columns)]:
@@ -219,27 +209,10 @@ def render_profile_page(home_data: dict) -> None:
         st.info("完成首次诊断后，这里会展示更完整的成长画像。")
         return
 
-    st.markdown(
-        f"""
-        <div class="student-home-card">
-            <div class="student-home-kicker">当前画像</div>
-            <div class="student-home-task-title">{escape(str(diagnosis.get('title_label') or home_data.get('title_label', '成长画像')))}</div>
-            <p class="student-home-subtitle">当前阶段：{escape(str(diagnosis.get('stage_label') or home_data.get('stage_label', '准备起步')))}</p>
-            <p class="student-home-task-desc">{escape(str(home_data.get('growth_feedback', '')))}</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    grid_cols = st.columns(2)
-    items = [
-        ("词汇量区间", str(diagnosis.get("vocab_band") or "待生成")),
-        ("阅读画像", str(diagnosis.get("reading_profile") or "待生成")),
-        ("语法缺口", str(diagnosis.get("grammar_gap") or "待生成")),
-        ("写作画像", str(diagnosis.get("writing_profile") or "待生成")),
-        ("成长重点", str(diagnosis.get("growth_focus") or "待生成")),
-        ("建议轨道", str(diagnosis.get("suggested_track") or "待生成")),
-    ]
-    for index, (label, value) in enumerate(items):
-        with grid_cols[index % 2]:
-            _render_profile_item(label, value)
+    col1, col2 = st.columns(2)
+    with col1:
+        _render_profile_item("当前阶段", home_data.get("stage_label", "待生成"))
+        _render_profile_item("重点方向", home_data.get("growth_focus", "待生成"))
+    with col2:
+        _render_profile_item("学习标题", home_data.get("title_label", "待生成"))
+        _render_profile_item("阶段总结", diagnosis.get("summary_text", "待生成"))
