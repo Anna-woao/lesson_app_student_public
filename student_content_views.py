@@ -9,6 +9,7 @@ import streamlit.components.v1 as components
 
 from lesson_html_renderer import build_downloadable_lesson_html, build_lesson_plain_text
 from student_content_service import (
+    build_all_learned_words_dialog_data,
     build_book_unit_progress_data,
     build_learned_words_page_data,
     build_lessons_page_data,
@@ -18,6 +19,7 @@ from student_content_service import (
 )
 from student_records_data import get_student_lesson_snapshot
 from student_ui_copy import format_progress_status_copy
+from student_vocab_test_view import render_vocab_test
 from student_vocab_test_view import render_test_feedback_blocks
 
 
@@ -146,17 +148,17 @@ def _show_lesson_vocab_dialog(student_id: int, lesson_snapshot: dict) -> None:
 
 def _render_learned_word_groups(groups) -> None:
     if not groups:
-        st.info("你目前还没有可展示的已学单词。")
+        st.info("你还没有形成按学案归档的已学单词记录。")
         return
 
     for group in groups:
         created_at = group.get("created_at", "")
         lesson_type = group.get("lesson_type", "") or "未标注类型"
-        topic = group.get("topic", "") or "未标注主题"
+        topic = group.get("topic", "") or "未命名主题"
         lesson_id = group.get("lesson_id")
         word_count = group.get("word_count", 0)
-        lesson_label = "未关联学案" if lesson_id is None else f"学案 {lesson_id}"
-        title = f"{created_at or '暂无记录'}｜{lesson_label}｜{lesson_type}｜{topic}（{word_count}词）"
+        lesson_label = "历史词汇" if lesson_id is None else f"学案 {lesson_id}"
+        title = f"{created_at or '时间未记录'} · {lesson_label} · {lesson_type} · {topic} · {word_count} 个词"
 
         with st.expander(title, expanded=False):
             for idx, word in enumerate(group.get("words", []), start=1):
@@ -168,12 +170,39 @@ def _render_learned_word_groups(groups) -> None:
                     st.write(f"{idx}. {lemma}")
 
 
-@st.dialog("我的已学单词")
+def _render_all_learned_words_grid(words) -> None:
+    columns = st.columns(4)
+    for index, word in enumerate(words):
+        with columns[index % 4]:
+            st.markdown(
+                f"""
+                <div class="student-home-card" style="margin: 8px 0; padding: 14px 16px;">
+                    <div class="student-home-kicker">学习顺序 #{index + 1}</div>
+                    <div class="student-home-task-title" style="font-size: 18px;">{word.get("lemma", "")}</div>
+                    <p class="student-home-task-desc">{word.get("meaning", "") or "暂未填写释义"}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+@st.dialog("全部已学单词")
 def _show_learned_words_dialog(student_id: int) -> None:
-    page_data = build_learned_words_page_data(student_id)
-    st.subheader(f"已学单词总数：{page_data['total_unique_words']}")
-    st.caption("按学案分类查看：哪天、哪份学案里学了哪些词。")
-    _render_learned_word_groups(page_data["lesson_groups"])
+    st.markdown(
+        """
+        <style>
+        [data-testid="stDialog"] [role="dialog"] { width: min(1100px, 92vw); }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    dialog_data = build_all_learned_words_dialog_data(student_id)
+    st.subheader(f"已学单词总数：{dialog_data['total_count']}")
+    st.caption("这里按学习顺序展示你已经学过的全部单词，越靠前代表越早进入学习记录。")
+    if not dialog_data["words"]:
+        st.info("你目前还没有已学单词。")
+        return
+    _render_all_learned_words_grid(dialog_data["words"])
 
 
 def render_lessons(student_id: int, *, render_section_anchor, render_section_focus_badge) -> None:
@@ -242,15 +271,22 @@ def render_lessons(student_id: int, *, render_section_anchor, render_section_foc
                 _show_lesson_vocab_dialog(student_id, lesson)
 
 
-def render_learned_words(student_id: int, *, render_section_anchor, render_section_focus_badge) -> None:
+def render_learned_words(
+    student_id: int,
+    *,
+    render_section_anchor,
+    render_section_focus_badge,
+    show_header: bool = True,
+) -> None:
     render_section_anchor("learned_words")
-    st.header("我的已学单词")
+    if show_header:
+        st.header("我的已学单词")
     render_section_focus_badge("learned_words")
 
     page_data = build_learned_words_page_data(student_id)
     total_unique_words = page_data["total_unique_words"]
     if total_unique_words == 0:
-        st.info("这里会记录你已经接触过的词汇内容。")
+        st.info("你目前还没有已学单词。")
         return
 
     if st.session_state.pop("student_auto_open_learned_words_dialog", False):
@@ -259,11 +295,11 @@ def render_learned_words(student_id: int, *, render_section_anchor, render_secti
     st.markdown(
         f"""
         <div class="student-home-card">
-            <div class="student-home-kicker">已学单词模块说明</div>
-            <div class="student-home-task-title">这里只回看已经进入学习记录的词汇积累</div>
+            <div class="student-home-kicker">Learned Vocabulary</div>
+            <div class="student-home-task-title">这里集中收纳你已经进入学习记录的单词</div>
             <p class="student-home-task-desc">
-                当前共记录 {total_unique_words} 个已学单词，关联 {page_data["lesson_group_count"]} 份学案。<br/>
-                这个页面只负责查看积累，不承接检测或学案练习。
+                当前累计 {total_unique_words} 个已学单词，分布在 {page_data["lesson_group_count"]} 份学案里。<br/>
+                先看总量，再按学案回看，会比一整页长列表轻松很多。
             </p>
         </div>
         """,
@@ -272,27 +308,78 @@ def render_learned_words(student_id: int, *, render_section_anchor, render_secti
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("已学单词总数", total_unique_words)
+        st.metric("已学单词", total_unique_words)
     with col2:
-        st.metric("关联学案数", page_data["lesson_group_count"])
+        st.metric("关联学案", page_data["lesson_group_count"])
     with col3:
-        if st.button("查看完整单词清单", key="view_learned_words_dialog", use_container_width=True):
+        if st.button("查看全部已学单词", key="view_learned_words_dialog", use_container_width=True):
             _show_learned_words_dialog(student_id)
 
-    st.markdown("## 学习积累摘要")
+    st.markdown("## 按学案查看")
     for group in page_data["preview_groups"]:
         lesson_label = group.get("topic", "") or group.get("lesson_type", "") or "未命名学案"
-        mix_label = f"新词 {group.get('new_word_count', 0)} ｜ 复习词 {group.get('review_word_count', 0)}"
+        mix_label = f"新词 {group.get('new_word_count', 0)} · 复习词 {group.get('review_word_count', 0)}"
         st.markdown(
             f"""
             <div class="student-home-card">
-                <div class="student-home-kicker">关联学案</div>
+                <div class="student-home-kicker">Lesson Group</div>
                 <div class="student-home-task-title">{lesson_label}</div>
-                <p class="student-home-subtitle">词汇数量：{group.get("word_count", 0)} ｜ {mix_label}</p>
-                <p class="student-home-task-desc">创建时间：{group.get("created_at", "") or '暂无记录'}</p>
+                <p class="student-home-subtitle">单词数 {group.get("word_count", 0)} · {mix_label}</p>
+                <p class="student-home-task-desc">学习时间：{group.get("created_at", "") or '时间未记录'}</p>
             </div>
             """,
             unsafe_allow_html=True,
+        )
+
+
+def render_my_vocab(student_id: int, *, render_section_anchor, render_section_focus_badge) -> None:
+    render_section_anchor("my_vocab")
+    st.header("我的词汇")
+    st.caption("把已学单词、词汇检测和检测记录放在同一个页面里，点开需要的模块再看。")
+
+    current_focus = st.session_state.get("student_home_focus_section")
+    if current_focus in {"learned_words", "vocab_test", "test_history"}:
+        st.session_state[f"student_vocab_section_open_{current_focus}"] = True
+
+    section_defs = [
+        ("learned_words", "已学单词"),
+        ("vocab_test", "词汇检测"),
+        ("test_history", "检测记录"),
+    ]
+
+    button_columns = st.columns(3)
+    for column, (section_key, label) in zip(button_columns, section_defs):
+        is_open = bool(st.session_state.get(f"student_vocab_section_open_{section_key}", False))
+        button_label = f"收起 {label}" if is_open else f"展开 {label}"
+        with column:
+            if st.button(button_label, key=f"student_vocab_section_button_{section_key}", use_container_width=True):
+                st.session_state[f"student_vocab_section_open_{section_key}"] = not is_open
+                st.rerun()
+
+    if not any(bool(st.session_state.get(f"student_vocab_section_open_{section_key}", False)) for section_key, _ in section_defs):
+        st.info("先点开上面的一个模块，就可以只查看你现在最需要的内容。")
+        return
+
+    if st.session_state.get("student_vocab_section_open_learned_words", False):
+        render_learned_words(
+            student_id,
+            render_section_anchor=render_section_anchor,
+            render_section_focus_badge=render_section_focus_badge,
+            show_header=False,
+        )
+    if st.session_state.get("student_vocab_section_open_vocab_test", False):
+        render_vocab_test(
+            student_id,
+            render_section_anchor=render_section_anchor,
+            render_section_focus_badge=render_section_focus_badge,
+            show_header=False,
+        )
+    if st.session_state.get("student_vocab_section_open_test_history", False):
+        render_test_history(
+            student_id,
+            render_section_anchor=render_section_anchor,
+            render_section_focus_badge=render_section_focus_badge,
+            show_header=False,
         )
 
 
@@ -379,9 +466,16 @@ def render_progress(student_id: int, *, render_section_anchor, render_section_fo
                 st.progress(unit["ratio"])
 
 
-def render_test_history(student_id: int, *, render_section_anchor, render_section_focus_badge) -> None:
+def render_test_history(
+    student_id: int,
+    *,
+    render_section_anchor,
+    render_section_focus_badge,
+    show_header: bool = True,
+) -> None:
     render_section_anchor("test_history")
-    st.header("我的检测记录")
+    if show_header:
+        st.header("我的检测记录")
     render_section_focus_badge("test_history")
 
     page_data = build_test_history_page_data(student_id, limit=20)
@@ -422,7 +516,7 @@ def render_test_history(student_id: int, *, render_section_anchor, render_sectio
             f"""
             <div class="student-home-card">
                 <div class="student-home-kicker">检测记录{record["retry_tag"]}</div>
-                <div class="student-home-task-title">{record["source_label"] or '??????'}</div>
+                <div class="student-home-task-title">{record["source_label"] or '未命名检测'}</div>
                 <p class="student-home-subtitle">检测类型：{record["test_type"]} ｜ 作答方式：{record["test_mode"]}</p>
                 <p class="student-home-task-desc">
                     得分：{record["correct_count"]} / {record["total_count"]}（正确率：{record["accuracy"]:.0%}）<br/>
