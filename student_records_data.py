@@ -450,8 +450,8 @@ def get_latest_diagnosis_record(student_id: int):
             .limit(1)
             .execute()
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        _raise_profile_read_error(exc, "student_diagnostic_records")
     rows = resp.data or []
     return rows[0] if rows else None
 
@@ -468,8 +468,8 @@ def get_latest_profile_snapshot(student_id: int):
             .limit(1)
             .execute()
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        _raise_profile_read_error(exc, "student_profile_snapshots")
     rows = resp.data or []
     return rows[0] if rows else None
 
@@ -486,8 +486,8 @@ def get_latest_diagnostic_vocab_result(student_id: int):
             .limit(1)
             .execute()
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        _raise_profile_read_error(exc, "diagnostic_vocab_results")
     rows = resp.data or []
     return rows[0] if rows else None
 
@@ -503,8 +503,8 @@ def get_diagnostic_vocab_answers(diagnostic_id: int):
             .order("id", desc=False)
             .execute()
         )
-    except Exception:
-        return []
+    except Exception as exc:
+        _raise_profile_read_error(exc, "diagnostic_vocab_answers")
     return resp.data or []
 
 
@@ -515,6 +515,28 @@ def _now_iso() -> str:
 def _is_missing_table_error(exc: Exception, table_name: str) -> bool:
     text = str(exc)
     return "PGRST205" in text and table_name in text
+
+
+def _raise_profile_read_error(exc: Exception, table_name: str) -> None:
+    if _is_missing_table_error(exc, table_name):
+        raise RuntimeError(
+            f"Supabase is missing required table: {table_name}. "
+            "Run the initial diagnosis migration before reading student profile data."
+        ) from exc
+    raise RuntimeError(f"Failed to read {table_name}: {exc}") from exc
+
+
+def _clear_dependent_profile_caches() -> None:
+    clear_student_records_cache()
+
+    try:
+        from student_home_viewmodel import clear_student_home_viewmodel_cache
+    except Exception as exc:
+        raise RuntimeError(
+            "Initial diagnosis was saved, but student_home_viewmodel cache cleanup could not be loaded."
+        ) from exc
+
+    clear_student_home_viewmodel_cache()
 
 
 def _build_diagnostic_vocab_result_payload(student_id: int, diagnostic_id: int, diagnosis_result: dict, diagnostic_meta: dict | None = None):
@@ -620,6 +642,10 @@ def save_initial_diagnosis_result(
     record_rows = record_resp.data or []
     record = record_rows[0] if record_rows else None
     record_id = record.get("id") if record else None
+    if record_id is None:
+        raise RuntimeError(
+            "Initial diagnosis record insert did not return an id; profile snapshot cannot be linked."
+        )
 
     vocab_result_record = None
     vocab_answer_rows = []
@@ -700,13 +726,7 @@ def save_initial_diagnosis_result(
     snapshot_rows = snapshot_resp.data or []
     snapshot = snapshot_rows[0] if snapshot_rows else None
 
-    clear_student_records_cache()
-    try:
-        from student_home_viewmodel import clear_student_home_viewmodel_cache
-
-        clear_student_home_viewmodel_cache()
-    except Exception:
-        pass
+    _clear_dependent_profile_caches()
 
     return {
         "record": record,
