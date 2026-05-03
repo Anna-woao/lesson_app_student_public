@@ -570,10 +570,17 @@ def _render_book_test_launcher(student_id: int):
             st.warning(payload)
 
 
-def render_vocab_test(student_id: int, *, render_section_anchor, render_section_focus_badge):
+def render_vocab_test(
+    student_id: int,
+    *,
+    render_section_anchor,
+    render_section_focus_badge,
+    show_header: bool = True,
+):
     render_section_anchor("vocab_test")
     _render_vocab_test_styles()
-    st.header("我的词汇检测")
+    if show_header:
+        st.header("我的词汇检测")
     render_section_focus_badge("vocab_test")
     payload = st.session_state.get("student_test_payload")
     result = st.session_state.get("student_test_result")
