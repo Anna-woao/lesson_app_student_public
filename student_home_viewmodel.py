@@ -328,7 +328,7 @@ def _build_history_task_cards(
         cards.append(
             StudentTaskCard(
                 title="学习进度回看",
-                eta=f"{sum(1 for row in book_progress if row[4] > 0)} 本词书",
+                eta=f"{sum(1 for row in book_progress if row[3] > 0)} 本词书",
                 description="已经推进过的词书和单元进度会在这里持续累计。",
                 target_section="progress",
             )
@@ -548,7 +548,7 @@ def _build_student_home_viewmodel_cached(student_id: int, student_name: str) -> 
     history_summary = StudentHistorySummary(
         recent_lessons_count=len(recent_lessons),
         learned_vocab_count=learned_vocab_count,
-        active_book_count=sum(1 for row in book_progress if row[4] > 0),
+        active_book_count=sum(1 for row in book_progress if row[3] > 0),
         test_record_count=len(test_records),
     )
     title_label = (latest_snapshot or {}).get("title_label") or _build_title_label(learned_vocab_count)
