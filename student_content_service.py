@@ -6,6 +6,7 @@ from typing import Any
 
 from db_student import get_student_book_progress, get_student_unit_progress
 from student_records_data import (
+    get_student_learned_vocab,
     get_student_learned_vocab_summary,
     get_student_recent_lesson_snapshots,
     get_student_vocab_test_records,
@@ -31,6 +32,38 @@ def build_learned_words_page_data(student_id: int) -> dict[str, Any]:
         "lesson_groups": lesson_groups,
         "preview_groups": lesson_groups[:3],
         "lesson_group_count": len(lesson_groups),
+    }
+
+
+def build_all_learned_words_dialog_data(student_id: int) -> dict[str, Any]:
+    rows = get_student_learned_vocab(student_id, limit=5000)
+    words = []
+    for row in reversed(rows):
+        (
+            lemma,
+            meaning,
+            status,
+            review_count,
+            error_count,
+            memory_score,
+            first_learned_at,
+            _last_review_time,
+            _next_review_time,
+        ) = row
+        words.append(
+            {
+                "lemma": lemma,
+                "meaning": meaning,
+                "status": status,
+                "review_count": review_count,
+                "error_count": error_count,
+                "memory_score": memory_score,
+                "first_learned_at": first_learned_at,
+            }
+        )
+    return {
+        "total_count": len(words),
+        "words": words,
     }
 
 
